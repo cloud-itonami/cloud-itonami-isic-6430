@@ -2,7 +2,7 @@
 
 ## Classification
 
-- Repository: `cloud-itonami-6430`
+- Repository: `cloud-itonami-isic-6430`
 - ISIC Rev.5: `6430`
 - Activity: administration of trusts, funds and similar financial entities that pool investor capital on behalf of shareholders/beneficiaries
 - Social impact: financial inclusion, data sovereignty, transparent audit

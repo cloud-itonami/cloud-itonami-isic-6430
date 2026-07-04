@@ -1,4 +1,4 @@
-{:itonami.blueprint/id "cloud-itonami-6430"
+{:itonami.blueprint/id "cloud-itonami-isic-6430"
  :itonami.blueprint/name "Trusts, funds and similar financial entities"
  :itonami.blueprint/isic-rev5 "6430"
  :itonami.blueprint/domain :finance/trust-fund-entity

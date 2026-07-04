@@ -1,6 +1,6 @@
 # Governance
 
-`cloud-itonami-6430` is an OSS open-business blueprint for administration of trusts, funds and similar financial entities that pool investor capital on behalf of shareholders/beneficiaries.
+`cloud-itonami-isic-6430` is an OSS open-business blueprint for administration of trusts, funds and similar financial entities that pool investor capital on behalf of shareholders/beneficiaries.
 Governance covers both the capability layer and the operator model.
 
 ## Maintainers

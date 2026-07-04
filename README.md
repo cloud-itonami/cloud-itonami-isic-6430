@@ -1,4 +1,4 @@
-# cloud-itonami-6430
+# cloud-itonami-isic-6430
 
 Open Business Blueprint for **ISIC Rev.5 6430**: Trusts, funds and similar financial entities.
 
