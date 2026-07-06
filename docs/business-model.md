@@ -15,9 +15,14 @@
 
 ## Offer
 
-- beneficiary/unitholder intake
-- NAV/valuation disclosure proposal
-- distribution proposal
+- beneficiary/unitholder (LP) subscription-agreement intake, HARD-gated
+  on accreditation
+- capital-call NOTICE issuance off an upstream investment-actor
+  (`cloud-itonami-isic-6499`) capital-call proposal, independently
+  re-verified against this vehicle's own subscription ledger before any
+  notice is ever sent to LPs
+- NAV/valuation disclosure proposal (blueprint-stage; not yet a governed op)
+- distribution proposal (blueprint-stage; not yet a governed op)
 - immutable audit ledger
 
 ## Revenue
@@ -30,7 +35,12 @@
 
 ## Trust Controls
 
-- no distribution is disbursed and no NAV is published without human sign-off
-- a fabricated valuation forces a hold, not an override
-- every distribution/NAV path is auditable
+- no capital-call notice is issued to LPs without human (trustee/fund
+  officer) sign-off; no distribution is disbursed and no NAV is published
+  without human sign-off either, once those ops are implemented
+- an unaccredited subscriber, a capital-call notice referencing an LP
+  with no subscription on file, or a notice whose upstream allocation
+  does not match this vehicle's own independent recomputation forces a
+  hold, not an override
+- every subscription/notice path is auditable
 - emergency manual override paths remain outside LLM control
