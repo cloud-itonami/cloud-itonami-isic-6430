@@ -6,6 +6,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [trustfund.store :as store]))
 
+(defn- close? [a b] (< (Math/abs (- (double a) (double b))) 1e-6))
+
 (defn- backends []
   [["MemStore" (store/seed-db)] ["DatomicStore" (store/datomic-seed-db)]])
 
@@ -19,8 +21,11 @@
       (is (= [] (store/ledger s)))
       (is (= [] (store/subscription-history s)))
       (is (= [] (store/notice-history s)))
+      (is (= [] (store/distribution-history s)))
       (is (zero? (store/subscription-sequence s "USA")))
-      (is (zero? (store/notice-sequence s "USA"))))))
+      (is (zero? (store/notice-sequence s "USA")))
+      (is (zero? (store/distribution-sequence s "USA")))
+      (is (false? (store/commitment-already-distributed? s "USA-00000000"))))))
 
 (deftest write-and-ledger-parity
   (doseq [[label s] (backends)]
@@ -45,6 +50,23 @@
         (is (= 1 (store/notice-sequence s "USA")))
         (is (pos? (:called-amount (store/lp s "lp-1"))))
         (is (pos? (:called-amount (store/lp s "lp-2")))))
+      (testing "distribution recording independently pro-rates across the subscription ledger and drafts the record"
+        (store/commit-record! s {:effect :distribution/recorded
+                                 :payload {:upstream-commitment-number "USA-00000000"
+                                          :distribution-amount 10096000 :jurisdiction "USA"
+                                          :effective-date "2026-07-06"}})
+        (is (= 1 (count (store/distribution-history s))))
+        (is (= "USA-DIST-000000" (get (first (store/distribution-history s)) "record_id")))
+        (is (= "USA-00000000" (get (first (store/distribution-history s)) "upstream_commitment_number")))
+        (is (= 1 (store/distribution-sequence s "USA")))
+        (is (true? (store/commitment-already-distributed? s "USA-00000000")))
+        (is (false? (store/commitment-already-distributed? s "USA-00000001")))
+        (let [allocs (get (first (store/distribution-history s)) "allocations")
+              by-id (into {} (map (juxt #(get % "lp_id") identity)) allocs)]
+          ;; by this point in the sequential test, lp-3 (250,000) has ALSO
+          ;; been subscribed above -- total subscribed commitment is
+          ;; 5,000,000 + 1,000,000 + 250,000 = 6,250,000, not just lp-1/lp-2's 6,000,000
+          (is (close? (/ (* 10096000.0 5000000.0) 6250000.0) (get-in by-id ["lp-1" "allocation"])))))
       (testing "ledger is append-only and order-preserving"
         (store/append-ledger! s {:op :a :disposition :commit})
         (store/append-ledger! s {:op :b :disposition :hold})

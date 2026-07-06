@@ -1,23 +1,26 @@
 (ns trustfund.registry
-  "Pure-function subscription-agreement and capital-call-NOTICE record
-  construction -- an append-only trust/fund-vehicle book-of-record draft.
+  "Pure-function subscription-agreement, capital-call-NOTICE and
+  LP-distribution-NOTICE record construction -- an append-only
+  trust/fund-vehicle book-of-record draft.
 
   This is the LEGAL entity's own registry, distinct from (and never a
   code dependency of) `cloud-itonami-isic-6499`'s `vcfund.registry`. The
   two repos interoperate ONLY through a documented DATA CONTRACT: this
-  namespace's `capital-call-allocations` independently REIMPLEMENTS the
-  same pro-rata-by-commitment-share math `vcfund.registry/capital-call-
-  allocations` does, deliberately -- a shared library here would mean a
-  bug in ONE implementation silently defeats the whole point of
-  `trustfund.governor`'s independent re-verification of an upstream
-  `vcfund` capital-call draft (see its docstring). Two independent
+  namespace's `capital-call-allocations`/`distribution-allocations`
+  independently REIMPLEMENT the same pro-rata-by-commitment-share math
+  `vcfund.registry/capital-call-allocations` does (for capital moving IN
+  from LPs and OUT to LPs respectively), deliberately -- a shared
+  library here would mean a bug in ONE implementation silently defeats
+  the whole point of `trustfund.governor`'s independent re-verification
+  of an upstream `vcfund` fact (see its docstring). Two independent
   implementations of well-known, unambiguous math (pro-rata shares) is a
   feature, not duplication to be refactored away.
 
   Like `vcfund.registry`, there is no single international identifier
-  standard for a fund vehicle's subscription/capital-call-notice record,
-  so this namespace does not invent one -- it validates required fields
-  and assigns a fund-scoped sequence number."
+  standard for a fund vehicle's subscription/capital-call-notice/
+  distribution-notice record, so this namespace does not invent one --
+  it validates required fields and assigns a fund-scoped sequence
+  number."
   (:require [clojure.string :as str]))
 
 (defn- unsigned-certificate
@@ -137,8 +140,74 @@
     {"record" record "notice_number" notice-number
      "certificate" (unsigned-certificate "CapitalCallNoticeCertificate" notice-number notice-number)}))
 
+(defn distribution-allocations
+  "Pure pro-rata DISTRIBUTION allocation across subscribed LPs, by
+  commitment share -- the SAME math `capital-call-allocations` uses,
+  applied to capital going OUT to LPs instead of capital being called IN
+  from them (the simplest, most common LPA convention: distributions are
+  pro-rated by commitment share, the same base every capital call
+  already uses -- no per-LP waterfall tiers modeled here).
+
+  `subscriptions` -- the SAME shape `capital-call-allocations` takes.
+  `distribution-amount` -- the total amount (the upstream `vcfund`
+  exit-distribution fact's `total_to_lp`) being paid out to LPs.
+
+  Returns one map per LP: `{:lp-id :commitment-amount :allocation}`."
+  [subscriptions distribution-amount]
+  (when (neg? distribution-amount) (throw (ex-info "distribution: distribution-amount must be >= 0" {})))
+  (when (empty? subscriptions) (throw (ex-info "distribution: no subscriptions on file" {})))
+  (let [total-committed (reduce + (map :commitment-amount subscriptions))]
+    (when (zero? total-committed)
+      (throw (ex-info "distribution: total subscribed commitment is zero" {})))
+    (mapv (fn [{:keys [id commitment-amount]}]
+            (let [commitment-amount (double commitment-amount)
+                  share (/ commitment-amount (double total-committed))]
+              {:lp-id id
+               :commitment-amount commitment-amount
+               :allocation (* share (double distribution-amount))}))
+          subscriptions)))
+
+(defn register-distribution-notice
+  "Validate + construct the LP-DISTRIBUTION NOTICE DRAFT -- the
+  trust/fund vehicle's own legal act of disbursing exit proceeds to its
+  subscribed LPs, issued off an UPSTREAM `vcfund.registry/register-
+  distribution` fact (`upstream-commitment-number`, for traceability
+  back to the investment actor's exit-distribution proposal that
+  triggered this). Pure function -- does not touch any real banking/wire
+  system; it builds the RECORD the trustee/fund officer would keep and
+  actually pay out to LPs. `trustfund.governor` independently
+  re-verifies `allocations` against its OWN subscription ledger, and
+  blocks a double-recording of the same upstream commitment number,
+  before this is ever allowed to commit -- never trusts the upstream
+  fact's numbers as-is."
+  [upstream-commitment-number allocations distribution-amount jurisdiction sequence effective-date]
+  (when-not (and upstream-commitment-number (not= upstream-commitment-number ""))
+    (throw (ex-info "distribution-notice: upstream-commitment-number required" {})))
+  (when (empty? allocations)
+    (throw (ex-info "distribution-notice: allocations required" {})))
+  (when (neg? distribution-amount)
+    (throw (ex-info "distribution-notice: distribution-amount must be >= 0" {})))
+  (when-not (and jurisdiction (not= jurisdiction ""))
+    (throw (ex-info "distribution-notice: jurisdiction required" {})))
+  (when (< sequence 0)
+    (throw (ex-info "distribution-notice: sequence must be >= 0" {})))
+  (when-not (and effective-date (not= effective-date ""))
+    (throw (ex-info "distribution-notice: effective-date required" {})))
+  (let [distribution-number (str (str/upper-case jurisdiction) "-DIST-" (zero-pad sequence 6))
+        record {"record_id" distribution-number
+                "kind" "distribution-notice-draft"
+                "upstream_commitment_number" upstream-commitment-number
+                "distribution_amount" (double distribution-amount)
+                "allocations" (mapv (fn [{:keys [lp-id allocation]}]
+                                      {"lp_id" lp-id "allocation" allocation})
+                                    allocations)
+                "effective_date" effective-date
+                "immutable" true}]
+    {"record" record "distribution_number" distribution-number
+     "certificate" (unsigned-certificate "DistributionNoticeCertificate" distribution-number distribution-number)}))
+
 (defn append
-  "Append a subscription/notice record, returning a NEW list (never
-  mutate history in place)."
+  "Append a subscription/notice/distribution record, returning a NEW
+  list (never mutate history in place)."
   [history result]
   (conj (vec history) (get result "record")))

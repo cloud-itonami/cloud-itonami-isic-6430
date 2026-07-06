@@ -87,3 +87,52 @@
     (is (= 2 (count hist2)))
     (is (= "USA-NOTICE-000000" (get-in hist2 [0 "record_id"])))
     (is (= "USA-NOTICE-000001" (get-in hist2 [1 "record_id"])))))
+
+;; ----------------------------- distribution-allocations -----------------------------
+
+(deftest distribution-allocations-split-pro-rata-by-commitment-share
+  (let [allocs (r/distribution-allocations subscriptions-fixture 10096000)
+        by-id (into {} (map (juxt :lp-id identity)) allocs)]
+    (is (close? (/ (* 10096000.0 5000000.0) 6000000.0) (:allocation (get by-id "lp-1"))))
+    (is (close? (/ (* 10096000.0 1000000.0) 6000000.0) (:allocation (get by-id "lp-2"))))))
+
+(deftest distribution-allocations-validation-rules
+  (is (thrown? Exception (r/distribution-allocations subscriptions-fixture -1)))
+  (is (thrown? Exception (r/distribution-allocations [] 1000)))
+  (is (thrown? Exception (r/distribution-allocations [{:id "lp-1" :commitment-amount 0}] 1000))))
+
+;; ----------------------------- distribution-notice -----------------------------
+
+(deftest distribution-notice-is-a-draft-not-a-real-payment
+  (let [allocs (r/distribution-allocations subscriptions-fixture 10096000)
+        result (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" 0 "2026-07-06")]
+    (is (nil? (get-in result ["certificate" "proof"])))
+    (is (= (get-in result ["certificate" "issued_by_registry"]) false))
+    (is (= (get-in result ["certificate" "status"]) "draft-unsigned"))))
+
+(deftest distribution-notice-assigns-distribution-number-and-references-upstream
+  (let [allocs (r/distribution-allocations subscriptions-fixture 10096000)
+        result (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" 7 "2026-07-06")]
+    (is (= (get result "distribution_number") "USA-DIST-000007"))
+    (is (= (get-in result ["record" "upstream_commitment_number"]) "USA-00000000"))
+    (is (= (get-in result ["record" "kind"]) "distribution-notice-draft"))
+    (is (= (get-in result ["record" "immutable"]) true))))
+
+(deftest distribution-notice-validation-rules
+  (let [allocs (r/distribution-allocations subscriptions-fixture 10096000)]
+    (is (thrown? Exception (r/register-distribution-notice "" allocs 10096000 "USA" 0 "2026-07-06")))
+    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" [] 10096000 "USA" 0 "2026-07-06")))
+    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs -1 "USA" 0 "2026-07-06")))
+    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs 10096000 "" 0 "2026-07-06")))
+    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" -1 "2026-07-06")))
+    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" 0 nil)))))
+
+(deftest distribution-history-is-append-only
+  (let [allocs (r/distribution-allocations subscriptions-fixture 1000000)
+        d1 (r/register-distribution-notice "USA-00000000" allocs 1000000 "USA" 0 "2026-07-06")
+        hist (r/append [] d1)
+        d2 (r/register-distribution-notice "USA-00000001" allocs 500000 "USA" 1 "2026-08-06")
+        hist2 (r/append hist d2)]
+    (is (= 2 (count hist2)))
+    (is (= "USA-DIST-000000" (get-in hist2 [0 "record_id"])))
+    (is (= "USA-DIST-000001" (get-in hist2 [1 "record_id"])))))

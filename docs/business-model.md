@@ -21,8 +21,12 @@
   (`cloud-itonami-isic-6499`) capital-call proposal, independently
   re-verified against this vehicle's own subscription ledger before any
   notice is ever sent to LPs
+- LP-distribution recording off an upstream investment-actor exit-
+  distribution fact -- since that fact carries only a fund-wide total
+  (no per-LP claim to verify), this vehicle independently COMPUTES the
+  authoritative per-LP split itself and HARD-holds if no subscriptions
+  exist or the same distribution would be recorded twice
 - NAV/valuation disclosure proposal (blueprint-stage; not yet a governed op)
-- distribution proposal (blueprint-stage; not yet a governed op)
 - immutable audit ledger
 
 ## Revenue
@@ -35,12 +39,13 @@
 
 ## Trust Controls
 
-- no capital-call notice is issued to LPs without human (trustee/fund
-  officer) sign-off; no distribution is disbursed and no NAV is published
-  without human sign-off either, once those ops are implemented
+- no capital-call notice is issued to LPs, and no distribution is
+  recorded, without human (trustee/fund officer) sign-off; no NAV is
+  published without human sign-off either, once that op is implemented
 - an unaccredited subscriber, a capital-call notice referencing an LP
-  with no subscription on file, or a notice whose upstream allocation
-  does not match this vehicle's own independent recomputation forces a
-  hold, not an override
-- every subscription/notice path is auditable
+  with no subscription on file, a notice whose upstream allocation does
+  not match this vehicle's own independent recomputation, a distribution
+  recorded against zero subscriptions, or a double-recording of the same
+  upstream distribution -- each forces a hold, not an override
+- every subscription/notice/distribution path is auditable
 - emergency manual override paths remain outside LLM control

@@ -11,8 +11,9 @@
   Both implement the same protocol and pass the same contract
   (test/trustfund/store_contract_test.clj). The ledger stays append-only
   on every backend: 'which LP subscribed for how much, which capital-call
-  notice was actually issued, off which upstream investment-actor
-  proposal, approved by whom' is always a query over an immutable log."
+  notice or LP-distribution notice was actually issued, off which
+  upstream investment-actor fact, approved by whom' is always a query
+  over an immutable log."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [trustfund.registry :as registry]
@@ -24,8 +25,11 @@
   (ledger [s])
   (subscription-history [s] "the append-only subscription-agreement history (trustfund.registry drafts)")
   (notice-history [s] "the append-only capital-call-notice history (trustfund.registry drafts)")
+  (distribution-history [s] "the append-only LP-distribution-notice history (trustfund.registry drafts)")
   (subscription-sequence [s jurisdiction] "next subscription-number sequence for a jurisdiction")
   (notice-sequence [s jurisdiction] "next notice-number sequence for a jurisdiction")
+  (distribution-sequence [s jurisdiction] "next distribution-number sequence for a jurisdiction")
+  (commitment-already-distributed? [s upstream-commitment-number] "has a distribution already been recorded for this upstream commitment?")
   (commit-record! [s record] "apply a committed op's record to the SSoT")
   (append-ledger! [s fact]   "append one immutable decision fact")
   (with-lps [s lps] "replace/seed the LP subscription directory (map id->lp)"))
@@ -74,6 +78,23 @@
                 upstream-call-number allocations call-amount jurisdiction seq-n notice-date)]
     {:result result :allocations allocations}))
 
+(defn- record-distribution!
+  "Backend-agnostic `:distribution/record` -- recomputes the pro-rata
+  distribution allocation INDEPENDENTLY from the current subscription
+  ledger (never trusts the upstream `vcfund` exit-distribution fact's
+  own per-LP breakdown), drafts the distribution-notice record
+  referencing the upstream commitment-number for traceability, and
+  returns {:result .. :allocations ..} for the caller to persist."
+  [s {:keys [upstream-commitment-number distribution-amount jurisdiction effective-date]}]
+  (let [allocations (registry/distribution-allocations
+                     (map #(select-keys % [:id :commitment-amount])
+                          (all-lps s))
+                     distribution-amount)
+        seq-n (distribution-sequence s jurisdiction)
+        result (registry/register-distribution-notice
+                upstream-commitment-number allocations distribution-amount jurisdiction seq-n effective-date)]
+    {:result result :allocations allocations}))
+
 ;; ----------------------------- MemStore (default) -----------------------------
 
 (defrecord MemStore [a]
@@ -83,8 +104,12 @@
   (ledger [_] (:ledger @a))
   (subscription-history [_] (:subscription-history @a))
   (notice-history [_] (:notice-history @a))
+  (distribution-history [_] (:distribution-history @a))
   (subscription-sequence [_ jurisdiction] (get-in @a [:subscription-sequences jurisdiction] 0))
   (notice-sequence [_ jurisdiction] (get-in @a [:notice-sequences jurisdiction] 0))
+  (distribution-sequence [_ jurisdiction] (get-in @a [:distribution-sequences jurisdiction] 0))
+  (commitment-already-distributed? [_ upstream-commitment-number]
+    (boolean (some #(= upstream-commitment-number (get % "upstream_commitment_number")) (:distribution-history @a))))
   (commit-record! [s {:keys [effect payload]}]
     (case effect
       :subscription/recorded
@@ -114,6 +139,14 @@
                                               lps allocations)))
                        (update :notice-history registry/append result))))
         result)
+
+      :distribution/recorded
+      (let [{:keys [result]} (record-distribution! s payload)]
+        (swap! a (fn [state]
+                   (-> state
+                       (update-in [:distribution-sequences (:jurisdiction payload)] (fnil inc 0))
+                       (update :distribution-history registry/append result))))
+        result)
       nil)
     s)
   (append-ledger! [_ fact] (swap! a update :ledger conj fact) fact)
@@ -123,8 +156,8 @@
   "A MemStore seeded with the demo LP-subscription set. The deterministic default."
   []
   (->MemStore (atom (assoc (demo-data)
-                           :ledger [] :subscription-sequences {} :notice-sequences {}
-                           :subscription-history [] :notice-history []))))
+                           :ledger [] :subscription-sequences {} :notice-sequences {} :distribution-sequences {}
+                           :subscription-history [] :notice-history [] :distribution-history []))))
 
 ;; ----------------------------- DatomicStore (langchain.db) -----------------------------
 
@@ -136,8 +169,10 @@
    :ledger/seq        {:db/unique :db.unique/identity}
    :subscription-history/seq {:db/unique :db.unique/identity}
    :notice-history/seq {:db/unique :db.unique/identity}
+   :distribution-history/seq {:db/unique :db.unique/identity}
    :subscription-sequence/jurisdiction {:db/unique :db.unique/identity}
-   :notice-sequence/jurisdiction {:db/unique :db.unique/identity}})
+   :notice-sequence/jurisdiction {:db/unique :db.unique/identity}
+   :distribution-sequence/jurisdiction {:db/unique :db.unique/identity}})
 
 (defn- enc [v] (pr-str v))
 (defn- dec* [s] (when s (edn/read-string s)))
@@ -179,6 +214,10 @@
     (->> (d/q '[:find ?s ?r :where [?e :notice-history/seq ?s] [?e :notice-history/record ?r]] (d/db conn))
          (sort-by first)
          (mapv (comp dec* second))))
+  (distribution-history [_]
+    (->> (d/q '[:find ?s ?r :where [?e :distribution-history/seq ?s] [?e :distribution-history/record ?r]] (d/db conn))
+         (sort-by first)
+         (mapv (comp dec* second))))
   (subscription-sequence [_ jurisdiction]
     (or (d/q '[:find ?n . :in $ ?j
               :where [?e :subscription-sequence/jurisdiction ?j] [?e :subscription-sequence/next ?n]]
@@ -189,6 +228,13 @@
               :where [?e :notice-sequence/jurisdiction ?j] [?e :notice-sequence/next ?n]]
             (d/db conn) jurisdiction)
         0))
+  (distribution-sequence [_ jurisdiction]
+    (or (d/q '[:find ?n . :in $ ?j
+              :where [?e :distribution-sequence/jurisdiction ?j] [?e :distribution-sequence/next ?n]]
+            (d/db conn) jurisdiction)
+        0))
+  (commitment-already-distributed? [s upstream-commitment-number]
+    (boolean (some #(= upstream-commitment-number (get % "upstream_commitment_number")) (distribution-history s))))
   (commit-record! [s {:keys [effect payload]}]
     (case effect
       :subscription/recorded
@@ -214,6 +260,15 @@
                            (map (fn [{:keys [lp-id new-called-amount]}]
                                   {:lp/id lp-id :lp/called-amount new-called-amount}))
                            allocations))
+        result)
+
+      :distribution/recorded
+      (let [{:keys [result]} (record-distribution! s payload)
+            next-n (inc (distribution-sequence s (:jurisdiction payload)))]
+        (d/transact! conn
+                     [{:distribution-sequence/jurisdiction (:jurisdiction payload) :distribution-sequence/next next-n}
+                      {:distribution-history/seq (count (distribution-history s))
+                       :distribution-history/record (enc (get result "record"))}])
         result)
       nil)
     s)

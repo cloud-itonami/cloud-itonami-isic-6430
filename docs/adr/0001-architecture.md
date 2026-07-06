@@ -162,3 +162,105 @@ exceptions: one clean subscription+notice lifecycle (escalate → approve
 → commit) plus three HARD-hold cases (unaccredited subscriber, notice
 referencing an unsubscribed LP, tampered/mismatched upstream allocation)
 that never reach a human.
+
+## Addendum 1: `:distribution/record`, the second cross-repo integration op
+
+### Context
+
+Decision point 5 above ("Scoped to ONE flagship op for this R0") and
+README's coverage table both named distribution recording as the
+explicit next step, following the SAME "read an upstream `vcfund` fact,
+independently re-verify, never trust it" pattern `:capital-call/issue-
+notice` already establishes. This addendum closes that gap.
+
+### Discovery: no upstream per-LP claim exists for distributions
+
+Before writing any code, `vcfund.registry/register-distribution`'s
+actual return shape was re-checked. Unlike `register-capital-call`
+(which computes and returns a genuine per-LP allocation list this
+vehicle can independently recompute and compare against), `register-
+distribution`'s embedded `distribute-waterfall` result carries ONLY a
+fund-WIDE aggregate (`:total-to-lp`, alongside `:return-of-capital` /
+`:preferred-return-due` / `:gp-carry` / `:lp-residual-profit`, all still
+fund-wide) -- there is no per-LP field anywhere in it.
+
+This means the "independently re-verify the upstream's own per-LP
+claim" pattern the capital-call op uses does not apply here: there is no
+upstream per-LP claim to verify. Two options were considered: (a) narrow
+the op to record only the fund-wide total (no LP-level ledger effect at
+all), or (b) have THIS vehicle compute the authoritative per-LP split
+itself, from its own subscription ledger, treating the upstream fact as
+authorizing only the FUND-WIDE amount to disburse. (b) was chosen --
+it is the only option that produces an actual per-LP distribution
+record (the whole point of the op), and it keeps the vehicle, not the
+investment actor, as the authority over its own LP directory and
+allocations, consistent with `trustfund.*` already being the SSoT for
+LP records. This narrower scope (compute, not verify) is stated
+explicitly in `trustfund.registry/distribution-allocations`'s docstring,
+`trustfund.governor`'s docstring, and README/business-model.md -- not
+silently glossed over as if it worked exactly like the capital-call op.
+
+### Decision points
+
+1. **`trustfund.registry/distribution-allocations`** is a NEW pure
+   function, structurally the pro-rata-by-commitment-share twin of
+   `capital-call-allocations`, but for OUTGOING distributions: it has no
+   `:called-amount`/`:overcall?` concept (a distribution cannot "overcall"
+   an LP -- there is no cap to exceed). `register-distribution-notice`
+   builds a `{JURISDICTION}-DIST-{6-digit}` draft record referencing the
+   upstream `commitment_number`, mirroring `register-capital-call-notice`'s
+   shape exactly (unsigned certificate, `"immutable" true`, sequence
+   number from a dedicated per-jurisdiction `distribution-sequences` map).
+2. **Only two HARD checks are possible, not three.** Because there is no
+   upstream per-LP claim, there is no "allocation-mismatch" check to
+   write for this op. `no-subscriptions-for-distribution-violations`
+   guards against recording a distribution when the LP directory is
+   empty (nothing to allocate against); `distribution-already-recorded-
+   violations` guards against recording the same upstream
+   `commitment_number` twice (an idempotency/double-spend guard, the same
+   shape `fundmgmt.governor/double-distribution-violations` uses for GP
+   carry in the sibling `cloud-itonami-isic-6630` repo). `trustfund.
+   governor/high-stakes` grew to `#{:actuation/issue-notice :actuation/
+   record-distribution}`; `trustfund.phase/write-ops` grew to include
+   `:distribution/record`, never auto at any phase.
+3. **A real bug was caught before any test ran.** The first draft of
+   `distribution-already-recorded-violations` destructured a top-level
+   `:upstream-commitment-number` key directly off the raw governor
+   request -- but the raw request only ever carries the NESTED
+   `:upstream-distribution-fact`; the commitment number is something the
+   ADVISOR derives from it, not something present on the request map
+   itself. Caught by re-reading the advisor's actual proposal shape
+   before wiring the check, and fixed to `get-in` the commitment number
+   from `upstream-distribution-fact` directly, mirroring exactly how the
+   capital-call checks already derive fields from `upstream-call-draft`.
+
+### Consequences
+
+- (+) The second cross-repo integration point is PROVEN the same way the
+  first one is: exercised by a clean distribution fact (escalates then
+  commits), a no-subscriptions fact (HARD-held), and a double-recording
+  of the same commitment (HARD-held), in both the demo and
+  `governor_contract_test.clj`.
+- (+) The honest scope-narrowing (compute, not verify, the per-LP split)
+  is documented in code and docs rather than silently presented as
+  symmetric with the capital-call op -- consistent with this repo's
+  "honestly bounded, not silently narrowed" posture throughout.
+- (-) Because this vehicle computes its own per-LP split from its own
+  subscription ledger rather than verifying an upstream claim, a
+  discrepancy between `vcfund`'s intended LP-level distribution (which it
+  does not expose) and this vehicle's recomputation would go undetected
+  by construction -- there is nothing to compare against. Accepted for
+  this addendum; would only be closable if `vcfund.registry/
+  register-distribution` were changed to also expose a per-LP
+  breakdown, which is out of scope for this repo to demand.
+- NAV publication remains the one blueprint-only offer left uncovered
+  (see README's coverage table).
+
+`test/trustfund/*` after this addendum -- 36 tests / 174 assertions,
+lint-clean (`clojure -M:lint`), demo (`clojure -M:dev:run`) runs
+end-to-end with no exceptions: two clean lifecycles (capital-call notice,
+distribution record; both escalate → approve → commit) plus five
+HARD-hold cases (unaccredited subscriber, notice referencing an
+unsubscribed LP, tampered/mismatched upstream allocation, distribution
+recorded with no subscriptions on file, double-recording of an
+already-recorded distribution) that never reach a human.

@@ -1,12 +1,14 @@
 (ns trustfund.advisor
   "TrustAdmin-LLM client -- the *contained intelligence node* for the
-  trust/fund-vehicle actor. It normalizes LP subscription intake and
-  drafts a capital-call NOTICE off an UPSTREAM `cloud-itonami-isic-6499`
-  (`vcfund`) capital-call draft. CRITICAL: it is a smart-but-untrusted
-  advisor -- it returns a *proposal*, never a committed record or a real
-  legal act. Every output is censored downstream by `trustfund.governor`
-  before anything touches the SSoT, and `:capital-call/issue-notice`
-  NEVER auto-commits at any phase -- see README `Actuation`.
+  trust/fund-vehicle actor. It normalizes LP subscription intake, drafts
+  a capital-call NOTICE off an UPSTREAM `cloud-itonami-isic-6499`
+  (`vcfund`) capital-call draft, AND drafts an LP-DISTRIBUTION record off
+  an upstream exit-distribution fact. CRITICAL: it is a smart-but-
+  untrusted advisor -- it returns a *proposal*, never a committed record
+  or a real legal act. Every output is censored downstream by
+  `trustfund.governor` before anything touches the SSoT, and
+  `:capital-call/issue-notice`/`:distribution/record` NEVER auto-commit
+  at any phase -- see README `Actuation`.
 
   Like `vcfund.ddllm`, this is a deterministic mock so the actor graph
   runs offline and the governor contract is exercised end-to-end. In
@@ -17,7 +19,7 @@
      :rationale  str            ; why -- SCANNED by the spec-basis gate
      :cites      [kw|str ..]    ; facts/sources the LLM used -- SCANNED too
      :effect     kw             ; how a commit would mutate the SSoT
-     :stake      kw|nil         ; :actuation/issue-notice | nil
+     :stake      kw|nil         ; :actuation/issue-notice | :actuation/record-distribution | nil
      :confidence 0..1}")
 
 (defn- normalize-subscription
@@ -57,6 +59,35 @@
      :stake      :actuation/issue-notice
      :confidence (if (and upstream-call-number call-amount) 0.9 0.2)}))
 
+(defn- propose-distribution-record
+  "Draft the LP-DISTRIBUTION recording action -- the trust/fund
+  vehicle's own legal act of paying out exit proceeds to its subscribed
+  LPs, off an UPSTREAM `vcfund.registry/register-distribution`-shaped
+  fact (`:upstream-distribution-fact`, the exact `{\"record\"
+  {\"commitment_number\" .. \"waterfall\" {:total-to-lp .. ..} ..} ..}` map
+  the investment actor produced -- a REAL fact this advisor reads, never
+  invents; the per-LP SPLIT itself is computed by THIS vehicle from its
+  own subscription ledger, not claimed by the upstream fact at all --
+  `vcfund.registry/distribute-waterfall` reports only a fund-wide
+  `total_to_lp` aggregate, see `trustfund.governor`'s docstring). ALWAYS
+  `:stake :actuation/record-distribution` -- a REAL-WORLD act, never a
+  draft the actor may auto-run. See README `Actuation`."
+  [_st {:keys [upstream-distribution-fact jurisdiction effective-date]}]
+  (let [record (get upstream-distribution-fact "record")
+        upstream-commitment-number (get record "commitment_number")
+        distribution-amount (:total-to-lp (get record "waterfall"))]
+    {:summary    (str "upstream distribution " upstream-commitment-number
+                      " (total_to_lp=" distribution-amount ") 向け記録提案")
+     :rationale  (str "upstream vcfund exit-distribution fact: " upstream-commitment-number)
+     :cites      [upstream-commitment-number]
+     :effect     :distribution/recorded
+     :value      {:upstream-commitment-number upstream-commitment-number
+                 :distribution-amount distribution-amount
+                 :jurisdiction jurisdiction
+                 :effective-date effective-date}
+     :stake      :actuation/record-distribution
+     :confidence (if (and upstream-commitment-number distribution-amount) 0.9 0.2)}))
+
 (defn infer
   "Route a request to the right proposal generator.
   request: {:op kw :subject id ...op-specific...}"
@@ -64,6 +95,7 @@
   (case op
     :subscription/record       (normalize-subscription st request)
     :capital-call/issue-notice (propose-capital-call-notice st request)
+    :distribution/record       (propose-distribution-record st request)
     {:summary "未対応の操作" :rationale (str op) :cites []
      :effect :noop :stake nil :confidence 0.0}))
 

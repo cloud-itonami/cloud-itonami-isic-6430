@@ -1,21 +1,25 @@
 (ns trustfund.sim
   "Demo driver -- `clojure -M:dev:run`. Walks a clean LP subscription
   through subscription intake (no capital risk; auto-commits) ->
-  capital-call NOTICE issuance off an UPSTREAM
-  `cloud-itonami-isic-6499` (`vcfund`) capital-call draft (always
-  escalates -- a real legal act) -> human approval -> commit, then shows
-  three HARD holds (an unaccredited subscriber, a capital-call notice
-  referencing an LP with no subscription on file, and a capital-call
-  notice whose upstream allocations do not match this vehicle's own
-  independent pro-rata recomputation) that never reach a human at all,
-  and prints the audit ledger + the draft subscription/notice records.
+  capital-call NOTICE issuance off an UPSTREAM `cloud-itonami-isic-6499`
+  (`vcfund`) capital-call draft -> LP-distribution recording off an
+  upstream exit-distribution fact (both always escalate -- real legal
+  acts) -> human approval -> commit, then shows five HARD holds (an
+  unaccredited subscriber, a capital-call notice referencing an LP with
+  no subscription on file, a capital-call notice whose upstream
+  allocations do not match this vehicle's own independent pro-rata
+  recomputation, a distribution recorded with no subscriptions on file,
+  and a double-recording of an already-recorded distribution) that never
+  reach a human at all, and prints the audit ledger + the draft
+  subscription/notice/distribution records.
 
-  The `upstream-call-draft` fixtures below are literal EDN, hand-shaped
-  to EXACTLY match what `vcfund.registry/register-capital-call` (in the
-  separate `cloud-itonami-isic-6499` repo) actually returns -- this repo
-  has NO code dependency on that one; the two interoperate only through
-  this documented data contract (see `trustfund.governor`'s docstring).
-  In production, this fact would arrive over whatever transport the two
+  The `upstream-call-draft`/`upstream-distribution-fact` fixtures below
+  are literal EDN, hand-shaped to EXACTLY match what `vcfund.registry/
+  register-capital-call`/`register-distribution` (in the separate
+  `cloud-itonami-isic-6499` repo) actually return -- this repo has NO
+  code dependency on that one; the two interoperate only through this
+  documented data contract (see `trustfund.governor`'s docstring). In
+  production, this fact would arrive over whatever transport the two
   deployed actors actually use (a message queue, a signed webhook, a
   shared kotoba-server pod), not a literal in a demo file."
   (:require [langgraph.graph :as g]
@@ -46,6 +50,25 @@
                   "type" ["VerifiableCredential" "CapitalCallCertificate"]
                   "credentialSubject" {"id" call-number "record" call-number}
                   "proof" nil "issued_by_registry" false "status" "draft-unsigned"}})
+
+(defn- upstream-distribution-fact
+  "A literal upstream `vcfund.registry/register-distribution` result --
+  `waterfall` is a KEYWORD-keyed map nested inside the otherwise
+  STRING-keyed \"record\" (the exact mixed-key shape `vcfund.registry/
+  distribute-waterfall`'s own return, embedded as-is, actually has) --
+  see ns docstring."
+  [commitment-number waterfall effective-date]
+  (let [record-id (str commitment-number "#exit@" effective-date)]
+    {"record" {"record_id" record-id
+               "kind" "distribution-draft"
+               "commitment_number" commitment-number
+               "waterfall" waterfall
+               "effective_date" effective-date
+               "immutable" true}
+     "certificate" {"@context" ["https://www.w3.org/ns/credentials/v2"]
+                    "type" ["VerifiableCredential" "ExitDistributionCertificate"]
+                    "credentialSubject" {"id" commitment-number "record" record-id}
+                    "proof" nil "issued_by_registry" false "status" "draft-unsigned"}}))
 
 (defn -main [& _]
   (let [db (store/seed-db)
@@ -96,6 +119,50 @@
                                   :upstream-call-draft draft
                                   :jurisdiction "USA" :notice-date "2026-07-06"} operator)))
 
+    (println "== distribution/record (upstream vcfund exit-distribution: total_to_lp=10,096,000 for USA-00000000, the same deal-by-deal waterfall example from cloud-itonami-isic-6499's own demo; pro-rated across lp-1/lp-2's TRUSTFUND subscriptions; always escalates -- actuation/record-distribution) ==")
+    (let [fact (upstream-distribution-fact "USA-00000000"
+                                           {:model :deal-by-deal-simple-preferred
+                                            :return-of-capital 2000000.0 :preferred-return-due 480000.0
+                                            :preferred-return-paid 480000.0 :gp-carry 1904000.0
+                                            :lp-residual-profit 7616000.0 :total-to-lp 10096000.0
+                                            :total-to-gp 1904000.0}
+                                           "3y")
+          r (exec! actor "t7" {:op :distribution/record :subject "fund"
+                               :upstream-distribution-fact fact
+                               :jurisdiction "USA" :effective-date "2026-07-06"} operator)]
+      (println r)
+      (println "-- human trustee/fund officer approves --")
+      (println (approve! actor "t7")))
+
+    (println "== distribution/record with NO subscriptions on file (blank store -> HARD hold, never reaches a human) ==")
+    (let [blank-store (store/->MemStore (atom {:lps {} :ledger [] :subscription-sequences {}
+                                               :notice-sequences {} :distribution-sequences {}
+                                               :subscription-history [] :notice-history []
+                                               :distribution-history []}))
+          actor2 (op/build blank-store)
+          fact (upstream-distribution-fact "USA-00000001"
+                                           {:model :deal-by-deal-simple-preferred
+                                            :return-of-capital 500000.0 :preferred-return-due 40000.0
+                                            :preferred-return-paid 40000.0 :gp-carry 0.0
+                                            :lp-residual-profit 0.0 :total-to-lp 540000.0
+                                            :total-to-gp 0.0}
+                                           "1y")]
+      (println (exec! actor2 "t8" {:op :distribution/record :subject "fund"
+                                   :upstream-distribution-fact fact
+                                   :jurisdiction "USA" :effective-date "2026-07-06"} operator)))
+
+    (println "== distribution/record USA-00000000 AGAIN (double-recording of an already-recorded distribution -> HARD hold) ==")
+    (let [fact (upstream-distribution-fact "USA-00000000"
+                                           {:model :deal-by-deal-simple-preferred
+                                            :return-of-capital 2000000.0 :preferred-return-due 480000.0
+                                            :preferred-return-paid 480000.0 :gp-carry 1904000.0
+                                            :lp-residual-profit 7616000.0 :total-to-lp 10096000.0
+                                            :total-to-gp 1904000.0}
+                                           "3y")]
+      (println (exec! actor "t9" {:op :distribution/record :subject "fund"
+                                  :upstream-distribution-fact fact
+                                  :jurisdiction "USA" :effective-date "2026-07-06"} operator)))
+
     (println "== audit ledger ==")
     (doseq [f (store/ledger db)] (println f))
 
@@ -103,4 +170,7 @@
     (doseq [r (store/subscription-history db)] (println r))
 
     (println "== draft capital-call-notice records ==")
-    (doseq [r (store/notice-history db)] (println r))))
+    (doseq [r (store/notice-history db)] (println r))
+
+    (println "== draft distribution-notice records ==")
+    (doseq [r (store/distribution-history db)] (println r))))

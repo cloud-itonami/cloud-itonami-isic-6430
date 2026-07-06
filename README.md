@@ -46,10 +46,26 @@ below) -- exactly the same "never trust the advisor's self-check"
 discipline `vcfund.governor/overcall-violations` applies inside its own
 repo, now applied ACROSS the repo boundary.
 
+A second cross-repo op, `:distribution/record`, reads an upstream
+`vcfund.registry/register-distribution` exit-distribution fact and
+records the LP-side disbursement. Its scope is **honestly narrower**
+than the capital-call op: `register-distribution`'s waterfall exposes
+only a fund-WIDE `total_to_lp` aggregate, never a per-LP breakdown, so
+there is no upstream per-LP claim for this vehicle to cross-check
+against (unlike the capital-call case, where `vcfund` DOES compute a
+genuine per-LP allocation this vehicle can compare its own recomputation
+to). `trustfund.registry/distribution-allocations` therefore COMPUTES
+the authoritative per-LP split itself (the same pro-rata-by-commitment-
+share math, applied to a distribution instead of a call), and
+`trustfund.governor` can only guard the two checks that ARE possible
+without an upstream per-LP claim: that at least one subscription exists
+to distribute against, and that the same upstream commitment is never
+recorded twice.
+
 ## Core Contract
 
 ```text
-upstream vcfund capital-call draft (a separate repo's proposal, read as a fact)
+upstream vcfund capital-call draft / exit-distribution fact (a separate repo's proposal, read as a fact)
         |
         v
    ┌──────────────┐   proposal      ┌──────────────────┐
@@ -57,22 +73,27 @@ upstream vcfund capital-call draft (a separate repo's proposal, read as a fact)
    │  (sealed)    │  + citations    │ unaccredited ·     │
    └──────────────┘                 │ subscription-      │
                              commit ◀────┼──────────▶ hold │ missing · allocation-
-                                 │             │           │ mismatch (independent
-                           record + ledger  escalate ─▶ human   pro-rata recompute)
-                                             (ALWAYS for
-                                              :capital-call/issue-notice)
+                                 │             │           │ mismatch · no-subscriptions-
+                           record + ledger  escalate ─▶ human   for-distribution ·
+                                             (ALWAYS for      distribution-already-
+                                              :capital-call/    recorded (independent
+                                              issue-notice AND  pro-rata recompute)
+                                              :distribution/record)
 ```
 
-No automated proposal, by itself, can issue a capital-call notice without
-`TrustFundGovernor` approval and a human trustee/fund-officer sign-off.
+No automated proposal, by itself, can issue a capital-call notice or
+record an LP distribution without `TrustFundGovernor` approval and a
+human trustee/fund-officer sign-off.
 
 ## Actuation
 
-**Issuing a capital-call notice is never autonomous, at any phase, by
-construction.** It is the one real-world legal act this vehicle performs
--- a binding demand for funds sent to LPs. `trustfund.governor/high-
-stakes` has one member, `:actuation/issue-notice`; `trustfund.phase`
-never puts it in any phase's `:auto` set. Two independent layers enforce
+**Issuing a capital-call notice or recording an LP distribution is never
+autonomous, at any phase, by construction.** These are the two real-
+world legal acts this vehicle performs -- a binding demand for funds
+sent to LPs, and a binding disbursement recorded against them.
+`trustfund.governor/high-stakes` has two members, `:actuation/issue-
+notice` and `:actuation/record-distribution`; `trustfund.phase` never
+puts either in any phase's `:auto` set. Two independent layers enforce
 this. `:subscription/record` moves no capital (still HARD-gated -- an
 unaccredited subscriber is un-overridable -- but not `high-stakes`), so
 it IS auto-eligible at phase 3.
@@ -80,7 +101,7 @@ it IS auto-eligible at phase 3.
 ## Run
 
 ```bash
-clojure -M:dev:run     # walk one clean subscription+notice lifecycle + three HARD-hold cases through the actor
+clojure -M:dev:run     # walk two clean lifecycles (subscription+notice, distribution-record) + five HARD-hold cases through the actor
 clojure -M:dev:test    # governor contract · phase invariants · store parity · registry conformance
 clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 ```
@@ -89,32 +110,35 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 
 | File | Role |
 |---|---|
-| `src/trustfund/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + subscription/capital-call-notice history |
-| `src/trustfund/registry.cljc` | Subscription-agreement draft + capital-call-NOTICE draft records, `capital-call-allocations` (an INDEPENDENT re-implementation of `vcfund.registry`'s pro-rata math -- see "Relationship") |
-| `src/trustfund/advisor.cljc` | **TrustAdmin-LLM** -- `mock-advisor`; subscription-intake/capital-call-notice proposals (the latter reads an upstream `vcfund` capital-call draft as a fact) |
-| `src/trustfund/governor.cljc` | **TrustFundGovernor** -- 3 HARD checks (unaccredited-subscriber · subscription-missing · allocation-mismatch, independently re-verified) + 1 soft (confidence/actuation gate) |
-| `src/trustfund/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (capital-call notice always human; subscription intake auto-eligible, no capital risk) |
+| `src/trustfund/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + subscription/capital-call-notice/distribution history |
+| `src/trustfund/registry.cljc` | Subscription-agreement + capital-call-NOTICE + distribution-NOTICE draft records; `capital-call-allocations`/`distribution-allocations` (INDEPENDENT re-implementations of `vcfund.registry`'s pro-rata math -- see "Relationship") |
+| `src/trustfund/advisor.cljc` | **TrustAdmin-LLM** -- `mock-advisor`; subscription-intake/capital-call-notice/distribution-record proposals (the latter two read an upstream `vcfund` fact) |
+| `src/trustfund/governor.cljc` | **TrustFundGovernor** -- 5 HARD checks (unaccredited-subscriber · subscription-missing · allocation-mismatch · no-subscriptions-for-distribution · distribution-already-recorded) + 1 soft (confidence/actuation gate) |
+| `src/trustfund/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (capital-call notice and distribution record always human; subscription intake auto-eligible, no capital risk) |
 | `src/trustfund/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
-| `src/trustfund/sim.cljc` | demo driver -- includes literal upstream-draft fixtures matching `vcfund.registry/register-capital-call`'s exact output shape |
+| `src/trustfund/sim.cljc` | demo driver -- includes literal upstream-fact fixtures matching `vcfund.registry/register-capital-call`/`register-distribution`'s exact output shapes |
 | `test/trustfund/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
 
 ## Business-process coverage (honest)
 
-This actor covers the ONE flagship cross-repo integration point (capital-
-call notice issuance off an upstream investment-actor proposal) plus the
-subscription-intake foundation it depends on. It does **not** yet cover
-every offer this blueprint's `docs/business-model.md` lists:
+This actor covers TWO flagship cross-repo integration points (capital-
+call notice issuance and LP-distribution recording, both off upstream
+investment-actor proposals) plus the subscription-intake foundation they
+depend on. It does **not** yet cover every offer this blueprint's
+`docs/business-model.md` lists:
 
 | Covered | Not covered (out of scope for this R0) |
 |---|---|
 | LP/beneficiary subscription-agreement intake, HARD-gated on accreditation (`:subscription/record`) | NAV/valuation disclosure proposal (this blueprint's own Offer lists it; not yet a governed op here) |
-| Capital-call NOTICE issuance off an upstream `vcfund` (`cloud-itonami-isic-6499`) capital-call draft, independently re-verified against THIS vehicle's own subscription ledger, never trusting the upstream numbers as-is (`:capital-call/issue-notice`) | Distribution disbursement recording off an upstream `vcfund` exit-distribution fact (the SAME integration pattern, not yet implemented) |
-| Immutable audit ledger for every subscription/notice decision | Real transfer-agent/banking integration, tax/regulatory reporting, fund-formation/LPA drafting |
+| Capital-call NOTICE issuance off an upstream `vcfund` (`cloud-itonami-isic-6499`) capital-call draft, independently re-verified against THIS vehicle's own subscription ledger, never trusting the upstream numbers as-is (`:capital-call/issue-notice`) | Real transfer-agent/banking integration, tax/regulatory reporting, fund-formation/LPA drafting |
+| Distribution disbursement recording off an upstream `vcfund` exit-distribution fact (`:distribution/record`) -- **honestly narrower** than the capital-call op: `vcfund`'s waterfall exposes only a fund-wide `total_to_lp`, never a per-LP claim, so this vehicle COMPUTES (not verifies) the per-LP split itself, and can only HARD-check that subscriptions exist and the same commitment is never recorded twice | |
+| Immutable audit ledger for every subscription/notice/distribution decision | |
 
 Extending coverage is additive: add the next gate as its own governed
 op with its own HARD checks and tests, following the SAME cross-repo
-"read an upstream fact, never trust it, independently re-verify" pattern
-this repo's one flagship op already establishes.
+"read an upstream fact, never trust it, independently re-verify (or,
+where no upstream per-LP claim exists, independently COMPUTE and say so
+honestly)" pattern this repo's two flagship ops already establish.
 
 ## Capability layer
 
