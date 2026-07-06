@@ -136,3 +136,42 @@
     (is (= 2 (count hist2)))
     (is (= "USA-DIST-000000" (get-in hist2 [0 "record_id"])))
     (is (= "USA-DIST-000001" (get-in hist2 [1 "record_id"])))))
+
+;; ----------------------------- nav-disclosure -----------------------------
+
+(def lp-accounts-fixture
+  [{:lp-id "lp-1" :commitment-amount 5000000.0 :called-amount 1666666.67 :unfunded 3333333.33
+    :ownership-pct 0.8333333333333334 :distributed-to-date 0.0 :nav-share 6666666.67}
+   {:lp-id "lp-2" :commitment-amount 1000000.0 :called-amount 333333.33 :unfunded 666666.67
+    :ownership-pct 0.16666666666666666 :distributed-to-date 0.0 :nav-share 1333333.33}])
+
+(deftest nav-disclosure-is-a-draft-not-a-real-disclosure
+  (let [result (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" 0)]
+    (is (nil? (get-in result ["certificate" "proof"])))
+    (is (= (get-in result ["certificate" "issued_by_registry"]) false))
+    (is (= (get-in result ["certificate" "status"]) "draft-unsigned"))))
+
+(deftest nav-disclosure-assigns-disclosure-number-and-carries-lp-accounts-through
+  (let [result (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" 7)]
+    (is (= (get result "disclosure_number") "USA-NAV-000007"))
+    (is (= (get-in result ["record" "nav"]) 8000000.0))
+    (is (= (get-in result ["record" "kind"]) "nav-disclosure-draft"))
+    (is (= (get-in result ["record" "immutable"]) true))
+    (is (= 2 (count (get-in result ["record" "lp_accounts"]))))
+    (is (close? 1666666.67 (get-in result ["record" "lp_accounts" 0 "called_amount"])))))
+
+(deftest nav-disclosure-validation-rules
+  (is (thrown? Exception (r/register-nav-disclosure nil "2026-07-06" lp-accounts-fixture "USA" 0)))
+  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "" lp-accounts-fixture "USA" 0)))
+  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "2026-07-06" [] "USA" 0)))
+  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "" 0)))
+  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" -1))))
+
+(deftest nav-disclosure-history-is-append-only
+  (let [n1 (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" 0)
+        hist (r/append [] n1)
+        n2 (r/register-nav-disclosure 8500000.0 "2026-10-06" lp-accounts-fixture "USA" 1)
+        hist2 (r/append hist n2)]
+    (is (= 2 (count hist2)))
+    (is (= "USA-NAV-000000" (get-in hist2 [0 "record_id"])))
+    (is (= "USA-NAV-000001" (get-in hist2 [1 "record_id"])))))

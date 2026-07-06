@@ -3,23 +3,31 @@
   through subscription intake (no capital risk; auto-commits) ->
   capital-call NOTICE issuance off an UPSTREAM `cloud-itonami-isic-6499`
   (`vcfund`) capital-call draft -> LP-distribution recording off an
-  upstream exit-distribution fact (both always escalate -- real legal
-  acts) -> human approval -> commit, then shows five HARD holds (an
-  unaccredited subscriber, a capital-call notice referencing an LP with
-  no subscription on file, a capital-call notice whose upstream
+  upstream exit-distribution fact -> NAV disclosure off an upstream
+  `vcfund.nav` report/capital-account fact (all three always escalate --
+  real legal acts) -> human approval -> commit, then shows seven HARD
+  holds (an unaccredited subscriber, a capital-call notice referencing an
+  LP with no subscription on file, a capital-call notice whose upstream
   allocations do not match this vehicle's own independent pro-rata
-  recomputation, a distribution recorded with no subscriptions on file,
-  and a double-recording of an already-recorded distribution) that never
-  reach a human at all, and prints the audit ledger + the draft
-  subscription/notice/distribution records.
+  recomputation, a distribution recorded with no subscriptions on file, a
+  double-recording of an already-recorded distribution, a NAV disclosure
+  whose upstream called-amount does not match this vehicle's own ledger,
+  and a NAV disclosure referencing an LP with no subscription on file)
+  that never reach a human at all, and prints the audit ledger + the
+  draft subscription/notice/distribution/nav-disclosure records.
 
   The `upstream-call-draft`/`upstream-distribution-fact` fixtures below
   are literal EDN, hand-shaped to EXACTLY match what `vcfund.registry/
   register-capital-call`/`register-distribution` (in the separate
-  `cloud-itonami-isic-6499` repo) actually return -- this repo has NO
-  code dependency on that one; the two interoperate only through this
+  `cloud-itonami-isic-6499` repo) actually return; `upstream-nav-report`/
+  `upstream-lp-capital-account` mirror `vcfund.nav/fund-nav-report`/
+  `lp-capital-account-report`'s own plain keyword-keyed return shapes
+  instead (those are read-only report adapters, not draft/certificate
+  records the way the other two are -- see `trustfund.registry/register-
+  nav-disclosure`'s docstring). This repo has NO code dependency on
+  `cloud-itonami-isic-6499`; the two interoperate only through this
   documented data contract (see `trustfund.governor`'s docstring). In
-  production, this fact would arrive over whatever transport the two
+  production, these facts would arrive over whatever transport the two
   deployed actors actually use (a message queue, a signed webhook, a
   shared kotoba-server pod), not a literal in a demo file."
   (:require [langgraph.graph :as g]
@@ -69,6 +77,21 @@
                     "type" ["VerifiableCredential" "ExitDistributionCertificate"]
                     "credentialSubject" {"id" commitment-number "record" record-id}
                     "proof" nil "issued_by_registry" false "status" "draft-unsigned"}}))
+
+(defn- upstream-nav-report
+  "A literal upstream `vcfund.nav/fund-nav-report` result -- see ns
+  docstring for why this is a plain keyword-keyed map, not a draft/
+  certificate record like the other two upstream facts."
+  [nav]
+  {:nav nav :net-cash 0.0 :held-fair-value nav})
+
+(defn- upstream-lp-capital-account
+  "A literal upstream `vcfund.nav/lp-capital-account` row -- see ns
+  docstring."
+  [lp-id commitment-amount called-amount ownership-pct]
+  {:lp-id lp-id :commitment-amount commitment-amount :called-amount called-amount
+   :unfunded (- commitment-amount called-amount) :ownership-pct ownership-pct
+   :distributed-to-date 0.0 :nav-share (* ownership-pct 8000000.0)})
 
 (defn -main [& _]
   (let [db (store/seed-db)
@@ -137,8 +160,9 @@
     (println "== distribution/record with NO subscriptions on file (blank store -> HARD hold, never reaches a human) ==")
     (let [blank-store (store/->MemStore (atom {:lps {} :ledger [] :subscription-sequences {}
                                                :notice-sequences {} :distribution-sequences {}
+                                               :nav-disclosure-sequences {}
                                                :subscription-history [] :notice-history []
-                                               :distribution-history []}))
+                                               :distribution-history [] :nav-disclosure-history []}))
           actor2 (op/build blank-store)
           fact (upstream-distribution-fact "USA-00000001"
                                            {:model :deal-by-deal-simple-preferred
@@ -163,6 +187,35 @@
                                   :upstream-distribution-fact fact
                                   :jurisdiction "USA" :effective-date "2026-07-06"} operator)))
 
+    (println "== nav/disclose (upstream vcfund NAV report: nav=$8,000,000, as_of=2026-07-06; per-LP called-amounts match THIS vehicle's own ledger after t3's capital-call notice; always escalates -- actuation/disclose-nav) ==")
+    (let [nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-1" 5000000.0 (/ (* 2000000.0 5000000.0) 6000000.0) (/ 5000000.0 6000000.0))
+                       (upstream-lp-capital-account "lp-2" 1000000.0 (/ (* 2000000.0 1000000.0) 6000000.0) (/ 1000000.0 6000000.0))]
+          r (exec! actor "t13" {:op :nav/disclose :subject "fund"
+                                :upstream-nav-report nav-report
+                                :upstream-lp-capital-accounts lp-accounts
+                                :jurisdiction "USA" :as-of-date "2026-07-06"} operator)]
+      (println r)
+      (println "-- human trustee/fund officer approves --")
+      (println (approve! actor "t13")))
+
+    (println "== nav/disclose with a called-amount that does not match this vehicle's own ledger (claims lp-1 has called far more than this vehicle's own capital-call-notice history shows -> HARD hold) ==")
+    (let [nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-1" 5000000.0 4999999.0 (/ 5000000.0 6000000.0))
+                       (upstream-lp-capital-account "lp-2" 1000000.0 (/ (* 2000000.0 1000000.0) 6000000.0) (/ 1000000.0 6000000.0))]]
+      (println (exec! actor "t14" {:op :nav/disclose :subject "fund"
+                                   :upstream-nav-report nav-report
+                                   :upstream-lp-capital-accounts lp-accounts
+                                   :jurisdiction "USA" :as-of-date "2026-07-06"} operator)))
+
+    (println "== nav/disclose referencing lp-9 (no subscription on file -> HARD hold, never reaches a human) ==")
+    (let [nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-9" 500000.0 0.0 0.1)]]
+      (println (exec! actor "t15" {:op :nav/disclose :subject "fund"
+                                   :upstream-nav-report nav-report
+                                   :upstream-lp-capital-accounts lp-accounts
+                                   :jurisdiction "USA" :as-of-date "2026-07-06"} operator)))
+
     (println "== audit ledger ==")
     (doseq [f (store/ledger db)] (println f))
 
@@ -173,4 +226,7 @@
     (doseq [r (store/notice-history db)] (println r))
 
     (println "== draft distribution-notice records ==")
-    (doseq [r (store/distribution-history db)] (println r))))
+    (doseq [r (store/distribution-history db)] (println r))
+
+    (println "== draft nav-disclosure records ==")
+    (doseq [r (store/nav-disclosure-history db)] (println r))))

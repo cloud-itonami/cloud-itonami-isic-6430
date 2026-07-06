@@ -9,29 +9,32 @@
     Phase 3  supervised auto  -- governor-clean, high-confidence
                                  `:subscription/record` (no capital risk)
                                  may auto-commit. `:capital-call/issue-
-                                 notice`/`:distribution/record` NEVER
-                                 auto-commit, at any phase.
+                                 notice`/`:distribution/record`/
+                                 `:nav/disclose` NEVER auto-commit, at
+                                 any phase.
 
-  `:capital-call/issue-notice`/`:distribution/record` are deliberately
-  ABSENT from every phase's `:auto` set, including phase 3 -- a
-  permanent structural fact, not a rollout milestone still to come.
-  Issuing a capital-call notice and recording a distribution are REAL
-  legal acts (a binding demand for funds sent to LPs, and an actual
-  disbursement paid out to them); both are always a human trustee/
-  fund-officer call. `trustfund.governor`'s `:actuation/issue-notice`/
-  `:actuation/record-distribution` high-stakes gate enforces the same
-  invariant independently -- two layers, not one, agree on this.
+  `:capital-call/issue-notice`/`:distribution/record`/`:nav/disclose` are
+  deliberately ABSENT from every phase's `:auto` set, including phase 3
+  -- a permanent structural fact, not a rollout milestone still to come.
+  Issuing a capital-call notice, recording a distribution and disclosing
+  NAV are all REAL legal acts (a binding demand for funds sent to LPs, an
+  actual disbursement paid out to them, and a financial statement LPs
+  will rely on); all three are always a human trustee/fund-officer call.
+  `trustfund.governor`'s `:actuation/issue-notice`/`:actuation/record-
+  distribution`/`:actuation/disclose-nav` high-stakes gate enforces the
+  same invariant independently -- two layers, not one, agree on this.
   `:subscription/record` moves no capital (governed by its own HARD
   check in `trustfund.governor`, but never `high-stakes`), so it IS
   auto-eligible at phase 3.")
 
 (def read-ops  #{})
-(def write-ops #{:subscription/record :capital-call/issue-notice :distribution/record})
+(def write-ops #{:subscription/record :capital-call/issue-notice
+                 :distribution/record :nav/disclose})
 
 ;; NOTE the invariant: `:capital-call/issue-notice`/`:distribution/
-;; record` are members of `write-ops` (governor-gated like any write)
-;; but are NEVER members of any phase's `:auto` set below. Do not add
-;; them there.
+;; record`/`:nav/disclose` are members of `write-ops` (governor-gated
+;; like any write) but are NEVER members of any phase's `:auto` set
+;; below. Do not add them there.
 (def phases
   "phase -> {:label .. :writes <ops allowed to write> :auto <ops allowed to
   auto-commit when governor-clean>}."
@@ -51,9 +54,9 @@
   - a write op not yet enabled in this phase -> HOLD (:phase-disabled).
   - a write op enabled but not auto-eligible -> ESCALATE (:phase-approval),
     even if the governor was clean.
-  - `:capital-call/issue-notice`/`:distribution/record` are never
-    auto-eligible at any phase, so they always escalate once the
-    governor clears them (or hold if the governor doesn't)."
+  - `:capital-call/issue-notice`/`:distribution/record`/`:nav/disclose`
+    are never auto-eligible at any phase, so they always escalate once
+    the governor clears them (or hold if the governor doesn't)."
   [phase {:keys [op]} governor-disposition]
   (let [{:keys [writes auto]} (get phases phase (get phases default-phase))]
     (cond

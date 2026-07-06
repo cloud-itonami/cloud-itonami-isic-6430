@@ -22,9 +22,11 @@
       (is (= [] (store/subscription-history s)))
       (is (= [] (store/notice-history s)))
       (is (= [] (store/distribution-history s)))
+      (is (= [] (store/nav-disclosure-history s)))
       (is (zero? (store/subscription-sequence s "USA")))
       (is (zero? (store/notice-sequence s "USA")))
       (is (zero? (store/distribution-sequence s "USA")))
+      (is (zero? (store/nav-disclosure-sequence s "USA")))
       (is (false? (store/commitment-already-distributed? s "USA-00000000"))))))
 
 (deftest write-and-ledger-parity
@@ -67,6 +69,18 @@
           ;; been subscribed above -- total subscribed commitment is
           ;; 5,000,000 + 1,000,000 + 250,000 = 6,250,000, not just lp-1/lp-2's 6,000,000
           (is (close? (/ (* 10096000.0 5000000.0) 6250000.0) (get-in by-id ["lp-1" "allocation"])))))
+      (testing "nav-disclosure carries the upstream LP capital-account rows through into a draft record"
+        (store/commit-record! s {:effect :nav/disclosed
+                                 :payload {:nav 8000000.0 :as-of-date "2026-07-06" :jurisdiction "USA"
+                                          :lp-accounts [{:lp-id "lp-1" :commitment-amount 5000000.0
+                                                        :called-amount 1600000.0 :unfunded 3400000.0
+                                                        :ownership-pct 0.8 :distributed-to-date 0.0
+                                                        :nav-share 6400000.0}]}})
+        (is (= 1 (count (store/nav-disclosure-history s))))
+        (is (= "USA-NAV-000000" (get (first (store/nav-disclosure-history s)) "record_id")))
+        (is (= 8000000.0 (get (first (store/nav-disclosure-history s)) "nav")))
+        (is (= 1 (store/nav-disclosure-sequence s "USA")))
+        (is (close? 1600000.0 (get-in (first (store/nav-disclosure-history s)) ["lp_accounts" 0 "called_amount"]))))
       (testing "ledger is append-only and order-preserving"
         (store/append-ledger! s {:op :a :disposition :commit})
         (store/append-ledger! s {:op :b :disposition :hold})

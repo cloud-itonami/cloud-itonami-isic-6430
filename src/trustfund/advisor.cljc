@@ -2,13 +2,14 @@
   "TrustAdmin-LLM client -- the *contained intelligence node* for the
   trust/fund-vehicle actor. It normalizes LP subscription intake, drafts
   a capital-call NOTICE off an UPSTREAM `cloud-itonami-isic-6499`
-  (`vcfund`) capital-call draft, AND drafts an LP-DISTRIBUTION record off
-  an upstream exit-distribution fact. CRITICAL: it is a smart-but-
-  untrusted advisor -- it returns a *proposal*, never a committed record
-  or a real legal act. Every output is censored downstream by
-  `trustfund.governor` before anything touches the SSoT, and
-  `:capital-call/issue-notice`/`:distribution/record` NEVER auto-commit
-  at any phase -- see README `Actuation`.
+  (`vcfund`) capital-call draft, drafts an LP-DISTRIBUTION record off an
+  upstream exit-distribution fact, AND drafts a NAV-DISCLOSURE off an
+  upstream `vcfund.nav` report/capital-account fact. CRITICAL: it is a
+  smart-but-untrusted advisor -- it returns a *proposal*, never a
+  committed record or a real legal act. Every output is censored
+  downstream by `trustfund.governor` before anything touches the SSoT,
+  and `:capital-call/issue-notice`/`:distribution/record`/`:nav/disclose`
+  NEVER auto-commit at any phase -- see README `Actuation`.
 
   Like `vcfund.ddllm`, this is a deterministic mock so the actor graph
   runs offline and the governor contract is exercised end-to-end. In
@@ -19,7 +20,7 @@
      :rationale  str            ; why -- SCANNED by the spec-basis gate
      :cites      [kw|str ..]    ; facts/sources the LLM used -- SCANNED too
      :effect     kw             ; how a commit would mutate the SSoT
-     :stake      kw|nil         ; :actuation/issue-notice | :actuation/record-distribution | nil
+     :stake      kw|nil         ; :actuation/issue-notice | :actuation/record-distribution | :actuation/disclose-nav | nil
      :confidence 0..1}")
 
 (defn- normalize-subscription
@@ -88,6 +89,31 @@
      :stake      :actuation/record-distribution
      :confidence (if (and upstream-commitment-number distribution-amount) 0.9 0.2)}))
 
+(defn- propose-nav-disclosure
+  "Draft the NAV-DISCLOSURE action -- this vehicle's own act of
+  disclosing its current whole-fund NAV and each LP's own capital-
+  account slice to its subscribed LPs, off UPSTREAM `vcfund.nav/fund-
+  nav-report`/`lp-capital-account-report`-shaped facts
+  (`:upstream-nav-report`/`:upstream-lp-capital-accounts`, REAL facts
+  this advisor reads, never invents). This vehicle does NOT itself
+  recompute NAV or ownership/distribution shares -- it has no portfolio
+  data of its own; see `trustfund.governor`'s docstring for the one
+  figure (`:called-amount`) it CAN independently verify. ALWAYS
+  `:stake :actuation/disclose-nav` -- a REAL-WORLD act, never a draft the
+  actor may auto-run. See README `Actuation`."
+  [_st {:keys [upstream-nav-report upstream-lp-capital-accounts jurisdiction as-of-date]}]
+  (let [nav (:nav upstream-nav-report)]
+    {:summary    (str "NAV開示提案 (nav=" nav ", as_of=" as-of-date ")")
+     :rationale  (str "upstream vcfund NAVレポート: as_of=" as-of-date)
+     :cites      [as-of-date]
+     :effect     :nav/disclosed
+     :value      {:nav nav
+                 :as-of-date as-of-date
+                 :lp-accounts upstream-lp-capital-accounts
+                 :jurisdiction jurisdiction}
+     :stake      :actuation/disclose-nav
+     :confidence (if (and nav (seq upstream-lp-capital-accounts)) 0.9 0.2)}))
+
 (defn infer
   "Route a request to the right proposal generator.
   request: {:op kw :subject id ...op-specific...}"
@@ -96,6 +122,7 @@
     :subscription/record       (normalize-subscription st request)
     :capital-call/issue-notice (propose-capital-call-notice st request)
     :distribution/record       (propose-distribution-record st request)
+    :nav/disclose              (propose-nav-disclosure st request)
     {:summary "未対応の操作" :rationale (str op) :cites []
      :effect :noop :stake nil :confidence 0.0}))
 

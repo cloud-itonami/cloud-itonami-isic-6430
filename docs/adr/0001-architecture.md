@@ -264,3 +264,118 @@ HARD-hold cases (unaccredited subscriber, notice referencing an
 unsubscribed LP, tampered/mismatched upstream allocation, distribution
 recorded with no subscriptions on file, double-recording of an
 already-recorded distribution) that never reach a human.
+
+## Addendum 2: `:nav/disclose`, the third cross-repo integration op, and the limit of what this vehicle can ever verify
+
+### Context
+
+README's coverage table named NAV/valuation disclosure as the one
+offer this blueprint originally published (in its `:blueprint`-tier
+scaffold) that neither R0 nor Addendum 1 implemented. Before writing any
+code, `vcfund.nav`'s actual functions (`fund-nav-report`,
+`lp-capital-account-report`) were read in full to find the genuine
+cross-check this op could perform, following the same discipline
+Addendum 1 used to discover distribution-record's narrower scope.
+
+### Discovery: this vehicle can verify called-amount, and NOTHING else
+
+`vcfund.nav/fund-nav-report`'s NAV figure derives from portfolio-level
+facts entirely outside this vehicle's data (deal cost-bases, fair-value
+marks, exit proceeds); `lp-capital-account-report`'s per-LP ownership-pct/
+distributed-to-date/nav-share all derive from that same whole-fund NAV.
+This vehicle holds none of that data -- it has no deal/portfolio ledger
+at all, only its own subscription and capital-call-notice history. So
+UNLIKE `:distribution/record` (where this vehicle at least COMPUTES an
+authoritative per-LP split from its own ledger), for `:nav/disclose`
+there is no math of any kind this vehicle can independently perform on
+NAV or ownership shares -- it can only carry the upstream figures through
+as reported facts.
+
+The ONE exception: `lp-capital-account-report`'s `:called-amount` per LP
+is not a NAV-derived figure at all -- `vcfund.nav`'s own `unfunded-
+commitments` reads it straight from `vcfund.store`'s LP directory, which
+`vcfund`'s OWN `:capital-call/call` op maintains. THIS vehicle
+independently maintains its OWN called-amount per LP too (advanced by
+`:capital-call/issue-notice`, a completely separate write path from
+`vcfund`'s). The two are genuinely independent books of record for the
+same fact, so comparing them is a real cross-check -- the same kind
+`allocation-mismatch-violations` performs, just a direct comparison
+instead of a recompute (there is no formula to re-derive a stored
+called-amount from). This is the honest floor of what integration is
+possible for this op, and it is stated explicitly in `trustfund.
+registry/register-nav-disclosure`'s docstring, `trustfund.governor`'s
+docstring, and README/business-model.md.
+
+### Decision points
+
+1. **`trustfund.registry/register-nav-disclosure`** is a NEW pure
+   function building a `{JURISDICTION}-NAV-{6-digit}` draft record,
+   mirroring the other two notice-registration functions' shape (unsigned
+   certificate, `"immutable" true`, dedicated per-jurisdiction
+   `nav-disclosure-sequences` map) -- but its `lp-accounts` are carried
+   through VERBATIM from the upstream fact rather than computed by this
+   vehicle, since (per the discovery above) there is nothing for this
+   vehicle to compute here.
+2. **The upstream fact has a genuinely different shape from the other
+   two.** `vcfund.registry/register-capital-call`/`register-distribution`
+   return string-keyed `{"record" .. "certificate" ..}` draft/certificate
+   envelopes (they represent THAT repo's own signed-eventually legal
+   proposals). `vcfund.nav/fund-nav-report`/`lp-capital-account-report`
+   are plain read-only report adapters with NO such envelope (computing
+   NAV is not itself a legal act by `vcfund` -- see that repo's own
+   `vcfund.nav` docstring) -- just keyword-keyed maps. `trustfund.sim`'s
+   `upstream-nav-report`/`upstream-lp-capital-account` fixtures and
+   `trustfund.governor`'s checks read them as such, rather than forcing a
+   string-keyed shape that does not reflect what `vcfund.nav` actually
+   returns.
+3. **Two HARD checks, both direct comparisons, neither a recompute.**
+   `nav-disclosure-subscription-missing-violations` (an LP in the
+   upstream capital-account report with no subscription on file --
+   structurally identical to `subscription-missing-violations`) and
+   `called-amount-mismatch-violations` (the one genuine cross-check
+   described above; deliberately skips any LP already flagged missing,
+   since there is nothing local to compare a missing LP's amount
+   against). `trustfund.governor/high-stakes` grew to `#{:actuation/
+   issue-notice :actuation/record-distribution :actuation/disclose-nav}`;
+   `trustfund.phase/write-ops` grew to include `:nav/disclose`, never
+   auto at any phase -- disclosing NAV moves no capital directly, but it
+   is a financial statement an LP will rely on, the same actuation
+   seriousness as the other two ops.
+
+### Consequences
+
+- (+) The third cross-repo integration point is PROVEN the same way the
+  first two are: exercised by a clean disclosure (escalates then
+  commits), a called-amount-mismatch fact (HARD-held), and a
+  missing-subscription fact (HARD-held), in both the demo and
+  `governor_contract_test.clj`.
+- (+) The progressively narrowing verification scope across all three
+  ops (capital-call: full independent recompute → distribution: this
+  vehicle computes its own split, nothing to verify → NAV: only ONE
+  figure is even comparable) is documented as a real, honest gradient,
+  not glossed over as uniform coverage -- consistent with this repo's
+  "honestly bounded, not silently narrowed" posture throughout.
+- (-) A NAV or ownership-share figure this vehicle discloses could be
+  wrong (stale portfolio marks, an upstream calculation bug) with NO
+  chance of this vehicle's own governor catching it -- by construction,
+  since it holds no portfolio data to check against. This is the honest
+  floor of what a fund vehicle without its own valuation data can ever
+  verify; closing it would require this vehicle to acquire independent
+  portfolio-valuation data, which is out of scope for a trust/fund
+  vehicle (that is `vcfund`'s domain, not this repo's).
+- This closes the LAST offer named in this blueprint's original
+  `docs/business-model.md` Offer list; remaining gaps (real transfer-
+  agent/banking integration, tax/regulatory reporting, fund-formation/
+  LPA drafting) were never part of this blueprint's Offer and remain
+  out of scope by design, not by omission.
+
+`test/trustfund/*` after this addendum -- 44 tests / 221 assertions,
+lint-clean (`clojure -M:lint`), demo (`clojure -M:dev:run`) runs
+end-to-end with no exceptions: three clean lifecycles (capital-call
+notice, distribution record, NAV disclosure; all escalate → approve →
+commit) plus seven HARD-hold cases (unaccredited subscriber, notice
+referencing an unsubscribed LP, tampered/mismatched upstream allocation,
+distribution recorded with no subscriptions on file, double-recording of
+an already-recorded distribution, NAV disclosure with a called-amount
+mismatch, NAV disclosure referencing an unsubscribed LP) that never reach
+a human.

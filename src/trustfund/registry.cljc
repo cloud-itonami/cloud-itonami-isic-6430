@@ -1,7 +1,7 @@
 (ns trustfund.registry
-  "Pure-function subscription-agreement, capital-call-NOTICE and
-  LP-distribution-NOTICE record construction -- an append-only
-  trust/fund-vehicle book-of-record draft.
+  "Pure-function subscription-agreement, capital-call-NOTICE,
+  LP-distribution-NOTICE and NAV-DISCLOSURE record construction -- an
+  append-only trust/fund-vehicle book-of-record draft.
 
   This is the LEGAL entity's own registry, distinct from (and never a
   code dependency of) `cloud-itonami-isic-6499`'s `vcfund.registry`. The
@@ -206,8 +206,55 @@
     {"record" record "distribution_number" distribution-number
      "certificate" (unsigned-certificate "DistributionNoticeCertificate" distribution-number distribution-number)}))
 
+(defn register-nav-disclosure
+  "Validate + construct the NAV-DISCLOSURE DRAFT -- the trust/fund
+  vehicle's own act of disclosing its current whole-fund NAV and each
+  LP's own capital-account slice, issued off an UPSTREAM
+  `vcfund.nav/fund-nav-report`/`lp-capital-account-report` fact. Unlike a
+  capital-call or distribution notice, this vehicle does NOT
+  independently recompute the NAV or any LP's ownership/distribution
+  shares -- it has no portfolio-valuation data of its own to derive them
+  from, only its own subscription/capital-call ledger. `trustfund.
+  governor` therefore verifies the ONE figure it CAN independently check
+  (each LP's called-amount, tracked by THIS vehicle's own capital-call-
+  notice history) and refuses to disclose about an LP with no
+  subscription on file -- see governor docstring for why a NAV/ownership-
+  share mismatch check is not possible here.
+
+  `lp-accounts` -- coll of `vcfund.nav/lp-capital-account`-shaped maps
+  (`{:lp-id :commitment-amount :called-amount :unfunded :ownership-pct
+  :distributed-to-date :nav-share}`), carried through into the record
+  verbatim once the governor has verified `:called-amount`."
+  [nav as-of-date lp-accounts jurisdiction sequence]
+  (when (nil? nav)
+    (throw (ex-info "nav-disclosure: nav required" {})))
+  (when-not (and as-of-date (not= as-of-date ""))
+    (throw (ex-info "nav-disclosure: as-of-date required" {})))
+  (when (empty? lp-accounts)
+    (throw (ex-info "nav-disclosure: lp-accounts required" {})))
+  (when-not (and jurisdiction (not= jurisdiction ""))
+    (throw (ex-info "nav-disclosure: jurisdiction required" {})))
+  (when (< sequence 0)
+    (throw (ex-info "nav-disclosure: sequence must be >= 0" {})))
+  (let [disclosure-number (str (str/upper-case jurisdiction) "-NAV-" (zero-pad sequence 6))
+        record {"record_id" disclosure-number
+                "kind" "nav-disclosure-draft"
+                "nav" (double nav)
+                "as_of_date" as-of-date
+                "lp_accounts" (mapv (fn [{:keys [lp-id commitment-amount called-amount unfunded
+                                                 ownership-pct distributed-to-date nav-share]}]
+                                      {"lp_id" lp-id "commitment_amount" commitment-amount
+                                       "called_amount" called-amount "unfunded" unfunded
+                                       "ownership_pct" ownership-pct
+                                       "distributed_to_date" distributed-to-date
+                                       "nav_share" nav-share})
+                                    lp-accounts)
+                "immutable" true}]
+    {"record" record "disclosure_number" disclosure-number
+     "certificate" (unsigned-certificate "NavDisclosureCertificate" disclosure-number disclosure-number)}))
+
 (defn append
-  "Append a subscription/notice/distribution record, returning a NEW
-  list (never mutate history in place)."
+  "Append a subscription/notice/distribution/nav-disclosure record,
+  returning a NEW list (never mutate history in place)."
   [history result]
   (conj (vec history) (get result "record")))

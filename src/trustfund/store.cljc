@@ -11,9 +11,9 @@
   Both implement the same protocol and pass the same contract
   (test/trustfund/store_contract_test.clj). The ledger stays append-only
   on every backend: 'which LP subscribed for how much, which capital-call
-  notice or LP-distribution notice was actually issued, off which
-  upstream investment-actor fact, approved by whom' is always a query
-  over an immutable log."
+  notice, LP-distribution notice or NAV disclosure was actually issued,
+  off which upstream investment-actor fact, approved by whom' is always
+  a query over an immutable log."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [trustfund.registry :as registry]
@@ -26,9 +26,11 @@
   (subscription-history [s] "the append-only subscription-agreement history (trustfund.registry drafts)")
   (notice-history [s] "the append-only capital-call-notice history (trustfund.registry drafts)")
   (distribution-history [s] "the append-only LP-distribution-notice history (trustfund.registry drafts)")
+  (nav-disclosure-history [s] "the append-only NAV-disclosure history (trustfund.registry drafts)")
   (subscription-sequence [s jurisdiction] "next subscription-number sequence for a jurisdiction")
   (notice-sequence [s jurisdiction] "next notice-number sequence for a jurisdiction")
   (distribution-sequence [s jurisdiction] "next distribution-number sequence for a jurisdiction")
+  (nav-disclosure-sequence [s jurisdiction] "next NAV-disclosure-number sequence for a jurisdiction")
   (commitment-already-distributed? [s upstream-commitment-number] "has a distribution already been recorded for this upstream commitment?")
   (commit-record! [s record] "apply a committed op's record to the SSoT")
   (append-ledger! [s fact]   "append one immutable decision fact")
@@ -95,6 +97,20 @@
                 upstream-commitment-number allocations distribution-amount jurisdiction seq-n effective-date)]
     {:result result :allocations allocations}))
 
+(defn- disclose-nav!
+  "Backend-agnostic `:nav/disclose` -- drafts the NAV-disclosure record
+  referencing the upstream `vcfund.nav` report/capital-account facts, and
+  returns {:result ..} for the caller to persist. Does NOT recompute NAV
+  or ownership shares (this vehicle has no portfolio data of its own --
+  see `trustfund.registry/register-nav-disclosure` docstring); the
+  upstream lp-accounts are carried through verbatim once `trustfund.
+  governor` has independently verified each LP's called-amount against
+  THIS vehicle's own ledger."
+  [s {:keys [nav as-of-date lp-accounts jurisdiction]}]
+  (let [seq-n (nav-disclosure-sequence s jurisdiction)
+        result (registry/register-nav-disclosure nav as-of-date lp-accounts jurisdiction seq-n)]
+    {:result result}))
+
 ;; ----------------------------- MemStore (default) -----------------------------
 
 (defrecord MemStore [a]
@@ -105,9 +121,11 @@
   (subscription-history [_] (:subscription-history @a))
   (notice-history [_] (:notice-history @a))
   (distribution-history [_] (:distribution-history @a))
+  (nav-disclosure-history [_] (:nav-disclosure-history @a))
   (subscription-sequence [_ jurisdiction] (get-in @a [:subscription-sequences jurisdiction] 0))
   (notice-sequence [_ jurisdiction] (get-in @a [:notice-sequences jurisdiction] 0))
   (distribution-sequence [_ jurisdiction] (get-in @a [:distribution-sequences jurisdiction] 0))
+  (nav-disclosure-sequence [_ jurisdiction] (get-in @a [:nav-disclosure-sequences jurisdiction] 0))
   (commitment-already-distributed? [_ upstream-commitment-number]
     (boolean (some #(= upstream-commitment-number (get % "upstream_commitment_number")) (:distribution-history @a))))
   (commit-record! [s {:keys [effect payload]}]
@@ -147,6 +165,14 @@
                        (update-in [:distribution-sequences (:jurisdiction payload)] (fnil inc 0))
                        (update :distribution-history registry/append result))))
         result)
+
+      :nav/disclosed
+      (let [{:keys [result]} (disclose-nav! s payload)]
+        (swap! a (fn [state]
+                   (-> state
+                       (update-in [:nav-disclosure-sequences (:jurisdiction payload)] (fnil inc 0))
+                       (update :nav-disclosure-history registry/append result))))
+        result)
       nil)
     s)
   (append-ledger! [_ fact] (swap! a update :ledger conj fact) fact)
@@ -157,7 +183,9 @@
   []
   (->MemStore (atom (assoc (demo-data)
                            :ledger [] :subscription-sequences {} :notice-sequences {} :distribution-sequences {}
-                           :subscription-history [] :notice-history [] :distribution-history []))))
+                           :nav-disclosure-sequences {}
+                           :subscription-history [] :notice-history [] :distribution-history []
+                           :nav-disclosure-history []))))
 
 ;; ----------------------------- DatomicStore (langchain.db) -----------------------------
 
@@ -170,9 +198,11 @@
    :subscription-history/seq {:db/unique :db.unique/identity}
    :notice-history/seq {:db/unique :db.unique/identity}
    :distribution-history/seq {:db/unique :db.unique/identity}
+   :nav-disclosure-history/seq {:db/unique :db.unique/identity}
    :subscription-sequence/jurisdiction {:db/unique :db.unique/identity}
    :notice-sequence/jurisdiction {:db/unique :db.unique/identity}
-   :distribution-sequence/jurisdiction {:db/unique :db.unique/identity}})
+   :distribution-sequence/jurisdiction {:db/unique :db.unique/identity}
+   :nav-disclosure-sequence/jurisdiction {:db/unique :db.unique/identity}})
 
 (defn- enc [v] (pr-str v))
 (defn- dec* [s] (when s (edn/read-string s)))
@@ -218,6 +248,10 @@
     (->> (d/q '[:find ?s ?r :where [?e :distribution-history/seq ?s] [?e :distribution-history/record ?r]] (d/db conn))
          (sort-by first)
          (mapv (comp dec* second))))
+  (nav-disclosure-history [_]
+    (->> (d/q '[:find ?s ?r :where [?e :nav-disclosure-history/seq ?s] [?e :nav-disclosure-history/record ?r]] (d/db conn))
+         (sort-by first)
+         (mapv (comp dec* second))))
   (subscription-sequence [_ jurisdiction]
     (or (d/q '[:find ?n . :in $ ?j
               :where [?e :subscription-sequence/jurisdiction ?j] [?e :subscription-sequence/next ?n]]
@@ -231,6 +265,11 @@
   (distribution-sequence [_ jurisdiction]
     (or (d/q '[:find ?n . :in $ ?j
               :where [?e :distribution-sequence/jurisdiction ?j] [?e :distribution-sequence/next ?n]]
+            (d/db conn) jurisdiction)
+        0))
+  (nav-disclosure-sequence [_ jurisdiction]
+    (or (d/q '[:find ?n . :in $ ?j
+              :where [?e :nav-disclosure-sequence/jurisdiction ?j] [?e :nav-disclosure-sequence/next ?n]]
             (d/db conn) jurisdiction)
         0))
   (commitment-already-distributed? [s upstream-commitment-number]
@@ -269,6 +308,15 @@
                      [{:distribution-sequence/jurisdiction (:jurisdiction payload) :distribution-sequence/next next-n}
                       {:distribution-history/seq (count (distribution-history s))
                        :distribution-history/record (enc (get result "record"))}])
+        result)
+
+      :nav/disclosed
+      (let [{:keys [result]} (disclose-nav! s payload)
+            next-n (inc (nav-disclosure-sequence s (:jurisdiction payload)))]
+        (d/transact! conn
+                     [{:nav-disclosure-sequence/jurisdiction (:jurisdiction payload) :nav-disclosure-sequence/next next-n}
+                      {:nav-disclosure-history/seq (count (nav-disclosure-history s))
+                       :nav-disclosure-history/record (enc (get result "record"))}])
         result)
       nil)
     s)

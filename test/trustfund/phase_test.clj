@@ -1,7 +1,7 @@
 (ns trustfund.phase-test
   "The phase table as executable tests. The invariant this repo cannot
-  regress on: `:capital-call/issue-notice` and `:distribution/record` may
-  never be members of any phase's `:auto` set."
+  regress on: `:capital-call/issue-notice`, `:distribution/record` and
+  `:nav/disclose` may never be members of any phase's `:auto` set."
   (:require [clojure.test :refer [deftest is testing]]
             [trustfund.phase :as phase]))
 
@@ -17,6 +17,12 @@
       (is (not (contains? auto :distribution/record))
           (str "phase " n " must not auto-commit :distribution/record")))))
 
+(deftest nav-disclose-never-auto-at-any-phase
+  (testing "structural invariant: no phase auto-discloses NAV"
+    (doseq [[n {:keys [auto]}] phase/phases]
+      (is (not (contains? auto :nav/disclose))
+          (str "phase " n " must not auto-commit :nav/disclose")))))
+
 (deftest phase-0-is-fully-read-only
   (is (empty? (:writes (get phase/phases 0)))))
 
@@ -29,7 +35,8 @@
 
 (deftest gate-escalates-a-clean-non-auto-write
   (is (= :escalate (:disposition (phase/gate 3 {:op :capital-call/issue-notice} :commit))))
-  (is (= :escalate (:disposition (phase/gate 3 {:op :distribution/record} :commit)))))
+  (is (= :escalate (:disposition (phase/gate 3 {:op :distribution/record} :commit))))
+  (is (= :escalate (:disposition (phase/gate 3 {:op :nav/disclose} :commit)))))
 
 (deftest gate-holds-a-write-disabled-in-this-phase
   (is (= :hold (:disposition (phase/gate 0 {:op :subscription/record} :commit)))))

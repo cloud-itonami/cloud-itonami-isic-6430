@@ -60,6 +60,14 @@
                          "new_called_amount" (/ (* call-amount 1000000.0) 6000000.0)}]
                        "2026-07-06"))
 
+(defn- upstream-nav-report [nav]
+  {:nav nav :net-cash 0.0 :held-fair-value nav})
+
+(defn- upstream-lp-capital-account [lp-id commitment-amount called-amount]
+  {:lp-id lp-id :commitment-amount commitment-amount :called-amount called-amount
+   :unfunded (- commitment-amount called-amount) :ownership-pct 0.5
+   :distributed-to-date 0.0 :nav-share 0.0})
+
 (defn- upstream-distribution-fact
   "A literal upstream `vcfund.registry/register-distribution` result --
   see `trustfund.sim`'s ns docstring for why waterfall is a KEYWORD-keyed
@@ -209,6 +217,60 @@
       (is (some #{:distribution-already-recorded} (-> (store/ledger db) last :basis))
           "the SECOND (double-recording) ledger fact carries the hold basis -- the first is t11's commit")
       (is (= 1 (count (store/distribution-history db))) "still only the first recording"))))
+
+(deftest nav-disclosure-with-mismatched-called-amount-is-held
+  (testing "an upstream capital-account row whose called-amount does not match this vehicle's OWN ledger -> HARD hold"
+    (let [[db actor] (fresh)
+          nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-1" 5000000.0 999999.0)]
+          res (exec-op actor "t13" {:op :nav/disclose :subject "fund"
+                                    :upstream-nav-report nav-report
+                                    :upstream-lp-capital-accounts lp-accounts
+                                    :jurisdiction "USA" :as-of-date "2026-07-06"} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:called-amount-mismatch} (-> (store/ledger db) first :basis)))
+      (is (empty? (store/nav-disclosure-history db))))))
+
+(deftest nav-disclosure-referencing-an-unsubscribed-lp-is-held
+  (testing "an upstream capital-account row for an LP with no subscription on file -> HARD hold"
+    (let [[db actor] (fresh)
+          nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-9" 500000.0 0.0)]
+          res (exec-op actor "t14" {:op :nav/disclose :subject "fund"
+                                    :upstream-nav-report nav-report
+                                    :upstream-lp-capital-accounts lp-accounts
+                                    :jurisdiction "USA" :as-of-date "2026-07-06"} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:nav-disclosure-subscription-missing} (-> (store/ledger db) first :basis)))
+      (is (empty? (store/nav-disclosure-history db))))))
+
+(deftest nav-disclosure-always-escalates-then-human-decides
+  (testing "a clean NAV disclosure (called-amounts matching this vehicle's own ledger) still ALWAYS interrupts for human approval -- actuation/disclose-nav is never auto"
+    (let [[db actor] (fresh)
+          nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-1" 5000000.0 0.0)
+                       (upstream-lp-capital-account "lp-2" 1000000.0 0.0)]
+          r1 (exec-op actor "t15" {:op :nav/disclose :subject "fund"
+                                   :upstream-nav-report nav-report
+                                   :upstream-lp-capital-accounts lp-accounts
+                                   :jurisdiction "USA" :as-of-date "2026-07-06"} operator)]
+      (is (= :interrupted (:status r1)) "pauses for human approval even when governor-clean")
+      (testing "approve -> commit, nav-disclosure record drafted"
+        (let [r2 (approve! actor "t15")]
+          (is (= :commit (get-in r2 [:state :disposition])))
+          (is (= 1 (count (store/nav-disclosure-history db))) "one draft nav-disclosure record")))))
+  (testing "reject -> hold, nothing recorded"
+    (let [[db actor] (fresh)
+          nav-report (upstream-nav-report 8000000.0)
+          lp-accounts [(upstream-lp-capital-account "lp-1" 5000000.0 0.0)]
+          _ (exec-op actor "t16" {:op :nav/disclose :subject "fund"
+                                  :upstream-nav-report nav-report
+                                  :upstream-lp-capital-accounts lp-accounts
+                                  :jurisdiction "USA" :as-of-date "2026-07-06"} operator)
+          r2 (g/run* actor {:approval {:status :rejected :by "op-1"}}
+                     {:thread-id "t16" :resume? true})]
+      (is (= :hold (get-in r2 [:state :disposition])))
+      (is (empty? (store/nav-disclosure-history db)) "nothing recorded on reject"))))
 
 (deftest every-decision-leaves-one-ledger-fact
   (testing "write-only-through-ledger: N operations -> N ledger facts"

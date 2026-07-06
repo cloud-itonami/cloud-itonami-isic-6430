@@ -5,14 +5,15 @@
 
   This is the venue where `cloud-itonami-isic-6499`'s (the VC-fund
   investment actor's) capital-call PROPOSAL becomes a real, binding
-  NOTICE the trust/fund vehicle actually sends to its subscribed LPs, AND
-  where its exit-distribution fact becomes a real disbursement THIS
-  vehicle actually pays out to them. The two repos are separate legal
-  entities with separate fiduciary duties, so this governor NEVER trusts
-  the upstream `vcfund` capital-call draft's own numbers -- it
-  independently recomputes the pro-rata allocation from ITS OWN
-  subscription ledger (`trustfund.registry/capital-call-allocations`, a
-  deliberately separate re-implementation of the same well-known math,
+  NOTICE the trust/fund vehicle actually sends to its subscribed LPs, its
+  exit-distribution fact becomes a real disbursement THIS vehicle
+  actually pays out to them, AND its NAV/capital-account report becomes a
+  real disclosure THIS vehicle actually sends its LPs. The two repos are
+  separate legal entities with separate fiduciary duties, so this
+  governor NEVER trusts the upstream `vcfund` capital-call draft's own
+  numbers -- it independently recomputes the pro-rata allocation from ITS
+  OWN subscription ledger (`trustfund.registry/capital-call-allocations`,
+  a deliberately separate re-implementation of the same well-known math,
   not a shared-code call into `vcfund.registry`) and HARD-holds on any
   mismatch, exactly the same 'never trust the advisor's self-check'
   discipline `vcfund.governor/overcall-violations` applies to the
@@ -31,7 +32,18 @@
   double-recording of the same upstream commitment -- see
   `distribution-already-recorded-violations`'s docstring.
 
-  Six checks, in priority order. The first five are HARD violations: a
+  NAV disclosure is narrower still: `vcfund.nav`'s reports carry NAV and
+  per-LP ownership/distribution shares this vehicle has NO WAY to
+  independently recompute at all (that math depends on portfolio
+  valuations, a domain entirely `vcfund`'s own -- this vehicle has no
+  deal/portfolio data). The ONE figure this vehicle DOES independently
+  track -- each LP's `:called-amount`, advanced only by its OWN
+  `:capital-call/issue-notice` history -- is the only cross-check
+  possible here; everything else in the disclosure is carried through as
+  a reported fact, not a verified one. See `called-amount-mismatch-
+  violations`'s docstring.
+
+  Eight checks, in priority order. The first seven are HARD violations: a
   human approver CANNOT override them.
 
     1. Unaccredited subscriber -- for `:subscription/record`, is the
@@ -61,10 +73,18 @@
        `commitment_number`? Refuses a double-recording, off this
        vehicle's own history -- no upstream comparison needed (see ns
        docstring for why this op has no allocation-mismatch check).
-    6. Confidence floor / actuation gate -- LLM confidence below
+    6. NAV-disclosure subscription missing -- for `:nav/disclose`, does
+       EVERY LP in the upstream capital-account report have an executed
+       subscription on file with THIS trust/fund vehicle?
+    7. Called-amount mismatch -- for `:nav/disclose`, does each LP's
+       called-amount in the upstream capital-account report match THIS
+       vehicle's own subscription ledger? A direct comparison, not a
+       recompute (see ns docstring for why NAV/ownership shares
+       themselves cannot be independently re-verified here).
+    8. Confidence floor / actuation gate -- LLM confidence below
        threshold, OR the op is `:capital-call/issue-notice`/
-       `:distribution/record` (REAL legal acts -- see README
-       `Actuation`) -> escalate."
+       `:distribution/record`/`:nav/disclose` (REAL legal acts -- see
+       README `Actuation`) -> escalate."
   (:require [clojure.string :as str]
             [trustfund.registry :as registry]
             [trustfund.store :as store]))
@@ -73,11 +93,11 @@
 
 (def high-stakes
   "Stakes grave enough to always require a human, even when clean.
-  Issuing a capital-call notice and recording an LP distribution are the
-  two real-world actuation events this actor performs -- legally binding
-  acts moving capital between this vehicle and its subscribed LPs, in
-  either direction."
-  #{:actuation/issue-notice :actuation/record-distribution})
+  Issuing a capital-call notice and recording an LP distribution are two
+  real-world actuation events moving capital between this vehicle and its
+  subscribed LPs; disclosing NAV is a third -- a statement of fact an LP
+  will rely on financially, even though it moves no capital itself."
+  #{:actuation/issue-notice :actuation/record-distribution :actuation/disclose-nav})
 
 (def ^:private allocation-tolerance
   "Floating-point tolerance for comparing an upstream draft's claimed
@@ -159,6 +179,41 @@
         [{:rule :distribution-already-recorded
           :detail (str upstream-commitment-number " は既にdistribution記録済み")}]))))
 
+(defn- nav-disclosure-subscription-missing-violations
+  "For `:nav/disclose`, every LP in the upstream `vcfund.nav/lp-capital-
+  account-report` must have an executed subscription on file with THIS
+  trust/fund vehicle -- it cannot disclose a capital-account slice for a
+  party it has no legal subscription relationship with."
+  [{:keys [op upstream-lp-capital-accounts]} st]
+  (when (= op :nav/disclose)
+    (let [lp-ids (map :lp-id upstream-lp-capital-accounts)
+          missing (remove #(store/lp st %) lp-ids)]
+      (when (seq missing)
+        [{:rule :nav-disclosure-subscription-missing
+          :detail (str "subscriptionが無いLPを含むNAV開示提案: " (str/join ", " missing))}]))))
+
+(defn- called-amount-mismatch-violations
+  "For `:nav/disclose`, the ONE figure this vehicle CAN independently
+  verify: each LP's `:called-amount` in the upstream `vcfund.nav`
+  capital-account report must match THIS vehicle's own subscription
+  ledger (advanced only by this vehicle's own `:capital-call/issue-
+  notice` history -- a SEPARATE book of record from `vcfund`'s own).
+  Unlike `allocation-mismatch-violations`, this is NOT an independent
+  RECOMPUTE (there is no pro-rata formula to re-derive for a disclosure)
+  -- just a direct comparison against this vehicle's own stored fact, the
+  same shape `subscription-missing-violations` already uses. Skips any
+  LP already flagged missing above -- there is nothing local to compare
+  a missing LP's amount against."
+  [{:keys [op upstream-lp-capital-accounts]} st]
+  (when (= op :nav/disclose)
+    (let [comparable (filter #(store/lp st (:lp-id %)) upstream-lp-capital-accounts)
+          mismatched (remove (fn [{:keys [lp-id called-amount]}]
+                               (close? called-amount (:called-amount (store/lp st lp-id))))
+                             comparable)]
+      (when (seq mismatched)
+        [{:rule :called-amount-mismatch
+          :detail (str (count mismatched) "件のLP called-amountが本ビークル自身の台帳と一致しない")}]))))
+
 (defn check
   "Censors a TrustAdmin-LLM proposal against the governor rules. Returns
    {:ok? bool :violations [..] :confidence c :escalate? bool :high-stakes? bool
@@ -169,7 +224,9 @@
                            (subscription-missing-violations request st)
                            (allocation-mismatch-violations request st)
                            (no-subscriptions-for-distribution-violations request st)
-                           (distribution-already-recorded-violations request st)))
+                           (distribution-already-recorded-violations request st)
+                           (nav-disclosure-subscription-missing-violations request st)
+                           (called-amount-mismatch-violations request st)))
         conf (:confidence proposal 0.0)
         low? (< conf confidence-floor)
         stakes? (boolean (high-stakes (:stake proposal)))
