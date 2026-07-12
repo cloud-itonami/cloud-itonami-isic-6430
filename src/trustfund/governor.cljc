@@ -86,10 +86,16 @@
        `:distribution/record`/`:nav/disclose` (REAL legal acts -- see
        README `Actuation`) -> escalate."
   (:require [clojure.string :as str]
+            [trustfund.kernels.gate :as gate]
             [trustfund.registry :as registry]
             [trustfund.store :as store]))
 
-(def confidence-floor 0.6)
+(def confidence-floor
+  "Documented threshold. The DECIDING copy is
+  `trustfund.kernels.gate/confidence-floor-x100` (integer x100 in the
+  safety kernel); this def is kept for callers/docs and pinned equal
+  by `trustfund.kernels.gate-test`."
+  0.6)
 
 (def high-stakes
   "Stakes grave enough to always require a human, even when clean.
@@ -99,14 +105,38 @@
   will rely on financially, even though it moves no capital itself."
   #{:actuation/issue-notice :actuation/record-distribution :actuation/disclose-nav})
 
-(def ^:private allocation-tolerance
-  "Floating-point tolerance for comparing an upstream draft's claimed
+(def allocation-tolerance
+  "Documented tolerance for comparing an upstream draft's claimed
   allocation against this vehicle's own independent recomputation. Not a
   business tolerance for real money mismatches -- purely for double
-  arithmetic, kept tiny."
+  arithmetic, kept tiny. The DECIDING copy is
+  `trustfund.kernels.gate/allocation-tolerance-x1e6` (one x1e6
+  micro-unit in the safety kernel); this def is kept for callers/docs
+  and pinned equal by `trustfund.kernels.gate-test`."
   1e-6)
 
-(defn- close? [a b] (< (Math/abs (- (double a) (double b))) allocation-tolerance))
+(defn- confidence->x100
+  "Host bridge (façade-side, not kernel vocabulary): scale a 0.0..1.0
+  advisor confidence to the kernel's integer x100 wire code."
+  [c]
+  (Math/round (* 100.0 (double c))))
+
+(defn- amount->x1e6
+  "Host bridge (façade-side, not kernel vocabulary): round a monetary
+  amount to the kernel's x1e6 (micro-unit) integer wire value.
+  Rounding both sides to micro-units before the in-kernel 1-micro-unit
+  tolerance matches the old |a - b| < 1e-6 predicate and absorbs
+  double-arithmetic noise the same way."
+  [v]
+  (Math/round (* 1000000.0 (double v))))
+
+(defn- close?
+  "Scalar amount comparison, DECIDED by the safety kernel
+  (`gate/amount-mismatch` over x1e6 micro-unit integers) — the per-LP
+  collection matching around it stays in this façade (see the kernel's
+  ns docstring for the thin-repo adaptation)."
+  [a b]
+  (= 0 (gate/amount-mismatch (amount->x1e6 a) (amount->x1e6 b))))
 
 (defn- unaccredited-subscriber-violations
   "For `:subscription/record`, the subscriber must be affirmed
@@ -219,23 +249,39 @@
    {:ok? bool :violations [..] :confidence c :escalate? bool :high-stakes? bool
     :hard? bool}."
   [request _context proposal st]
-  (let [hard (into []
-                   (concat (unaccredited-subscriber-violations request proposal)
-                           (subscription-missing-violations request st)
-                           (allocation-mismatch-violations request st)
-                           (no-subscriptions-for-distribution-violations request st)
-                           (distribution-already-recorded-violations request st)
-                           (nav-disclosure-subscription-missing-violations request st)
-                           (called-amount-mismatch-violations request st)))
+  (let [unacc-v (unaccredited-subscriber-violations request proposal)
+        smiss-v (subscription-missing-violations request st)
+        alloc-v (allocation-mismatch-violations request st)
+        nosub-v (no-subscriptions-for-distribution-violations request st)
+        dup-v   (distribution-already-recorded-violations request st)
+        nmiss-v (nav-disclosure-subscription-missing-violations request st)
+        callm-v (called-amount-mismatch-violations request st)
+        hard (into [] (concat unacc-v smiss-v alloc-v nosub-v dup-v nmiss-v callm-v))
         conf (:confidence proposal 0.0)
-        low? (< conf confidence-floor)
         stakes? (boolean (high-stakes (:stake proposal)))
-        hard? (boolean (seq hard))]
-    {:ok?          (and (not hard?) (not low?) (not stakes?))
+        ;; The decision itself is delegated to the safety kernel
+        ;; (trustfund.kernels.gate, integer-coded fail-closed core);
+        ;; this façade only gathers evidence (violation lists with
+        ;; human-readable details, incl. the per-LP collection matching
+        ;; whose scalar comparisons the kernel already decided via
+        ;; close?) and maps codes back to keywords. Kernel is stricter
+        ;; than the old inline logic on ONE case by design: an
+        ;; out-of-range confidence (< 0 or > 1.0) now escalates instead
+        ;; of counting as high confidence.
+        code (gate/verdict-code (if (seq unacc-v) 1 0)
+                                (if (seq smiss-v) 1 0)
+                                (if (seq alloc-v) 1 0)
+                                (if (seq nosub-v) 1 0)
+                                (if (seq dup-v) 1 0)
+                                (if (seq nmiss-v) 1 0)
+                                (if (seq callm-v) 1 0)
+                                (confidence->x100 conf)
+                                (if stakes? 1 0))]
+    {:ok?          (= 0 code)
      :violations   hard
      :confidence   conf
-     :hard?        hard?
-     :escalate?    (and (not hard?) (or low? stakes?))
+     :hard?        (= 2 code)
+     :escalate?    (= 1 code)
      :high-stakes? stakes?}))
 
 (defn hold-fact
