@@ -22,11 +22,11 @@
     (is (= (get-in result ["record" "accredited"]) true))))
 
 (deftest subscription-validation-rules
-  (is (thrown? Exception (r/register-subscription "" 0 "USD" "USA" true 1)))
-  (is (thrown? Exception (r/register-subscription "lp-1" -1 "USD" "USA" true 1)))
-  (is (thrown? Exception (r/register-subscription "lp-1" 0 "" "USA" true 1)))
-  (is (thrown? Exception (r/register-subscription "lp-1" 0 "USD" "" true 1)))
-  (is (thrown? Exception (r/register-subscription "lp-1" 0 "USD" "USA" true -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-subscription "" 0 "USD" "USA" true 1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-subscription "lp-1" -1 "USD" "USA" true 1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-subscription "lp-1" 0 "" "USA" true 1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-subscription "lp-1" 0 "USD" "" true 1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-subscription "lp-1" 0 "USD" "USA" true -1))))
 
 ;; ----------------------------- capital-call-allocations -----------------------------
 
@@ -48,9 +48,9 @@
       (is (every? :overcall? allocs)))))
 
 (deftest capital-call-allocations-validation-rules
-  (is (thrown? Exception (r/capital-call-allocations subscriptions-fixture -1)))
-  (is (thrown? Exception (r/capital-call-allocations [] 1000)))
-  (is (thrown? Exception (r/capital-call-allocations [{:id "lp-1" :commitment-amount 0}] 1000))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/capital-call-allocations subscriptions-fixture -1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/capital-call-allocations [] 1000)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/capital-call-allocations [{:id "lp-1" :commitment-amount 0}] 1000))))
 
 ;; ----------------------------- capital-call-notice -----------------------------
 
@@ -71,12 +71,12 @@
 
 (deftest capital-call-notice-validation-rules
   (let [allocs (r/capital-call-allocations subscriptions-fixture 2000000)]
-    (is (thrown? Exception (r/register-capital-call-notice "" allocs 2000000 "USA" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-capital-call-notice "USA-CALL-000000" [] 2000000 "USA" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-capital-call-notice "USA-CALL-000000" allocs -1 "USA" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-capital-call-notice "USA-CALL-000000" allocs 2000000 "" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-capital-call-notice "USA-CALL-000000" allocs 2000000 "USA" -1 "2026-07-06")))
-    (is (thrown? Exception (r/register-capital-call-notice "USA-CALL-000000" allocs 2000000 "USA" 0 nil)))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-capital-call-notice "" allocs 2000000 "USA" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-capital-call-notice "USA-CALL-000000" [] 2000000 "USA" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-capital-call-notice "USA-CALL-000000" allocs -1 "USA" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-capital-call-notice "USA-CALL-000000" allocs 2000000 "" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-capital-call-notice "USA-CALL-000000" allocs 2000000 "USA" -1 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-capital-call-notice "USA-CALL-000000" allocs 2000000 "USA" 0 nil)))))
 
 (deftest notice-history-is-append-only
   (let [allocs (r/capital-call-allocations subscriptions-fixture 1000000)
@@ -97,9 +97,9 @@
     (is (close? (/ (* 10096000.0 1000000.0) 6000000.0) (:allocation (get by-id "lp-2"))))))
 
 (deftest distribution-allocations-validation-rules
-  (is (thrown? Exception (r/distribution-allocations subscriptions-fixture -1)))
-  (is (thrown? Exception (r/distribution-allocations [] 1000)))
-  (is (thrown? Exception (r/distribution-allocations [{:id "lp-1" :commitment-amount 0}] 1000))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/distribution-allocations subscriptions-fixture -1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/distribution-allocations [] 1000)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/distribution-allocations [{:id "lp-1" :commitment-amount 0}] 1000))))
 
 ;; ----------------------------- distribution-notice -----------------------------
 
@@ -120,12 +120,12 @@
 
 (deftest distribution-notice-validation-rules
   (let [allocs (r/distribution-allocations subscriptions-fixture 10096000)]
-    (is (thrown? Exception (r/register-distribution-notice "" allocs 10096000 "USA" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" [] 10096000 "USA" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs -1 "USA" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs 10096000 "" 0 "2026-07-06")))
-    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" -1 "2026-07-06")))
-    (is (thrown? Exception (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" 0 nil)))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-distribution-notice "" allocs 10096000 "USA" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-distribution-notice "USA-00000000" [] 10096000 "USA" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-distribution-notice "USA-00000000" allocs -1 "USA" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-distribution-notice "USA-00000000" allocs 10096000 "" 0 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" -1 "2026-07-06")))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-distribution-notice "USA-00000000" allocs 10096000 "USA" 0 nil)))))
 
 (deftest distribution-history-is-append-only
   (let [allocs (r/distribution-allocations subscriptions-fixture 1000000)
@@ -161,11 +161,11 @@
     (is (close? 1666666.67 (get-in result ["record" "lp_accounts" 0 "called_amount"])))))
 
 (deftest nav-disclosure-validation-rules
-  (is (thrown? Exception (r/register-nav-disclosure nil "2026-07-06" lp-accounts-fixture "USA" 0)))
-  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "" lp-accounts-fixture "USA" 0)))
-  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "2026-07-06" [] "USA" 0)))
-  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "" 0)))
-  (is (thrown? Exception (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-nav-disclosure nil "2026-07-06" lp-accounts-fixture "USA" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-nav-disclosure 8000000.0 "" lp-accounts-fixture "USA" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-nav-disclosure 8000000.0 "2026-07-06" [] "USA" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" -1))))
 
 (deftest nav-disclosure-history-is-append-only
   (let [n1 (r/register-nav-disclosure 8000000.0 "2026-07-06" lp-accounts-fixture "USA" 0)
