@@ -1,0 +1,35 @@
+(ns cloud-itonami-capital-call-allocation)
+
+(defn capital-call-not-overcalled? [commitment-amount total-committed call-amount called-amount]
+  (let [allocation (quot (* commitment-amount call-amount) total-committed)
+        new-called-amount (+ called-amount allocation)]
+    (if (> new-called-amount commitment-amount)
+      0
+      1)))
+
+;; ABI: `main` stays 0-arity (the compiler rejects a parameterized main --
+;; :main-arity, see kotoba-lang/kotoba's compile-wasm-expr) and reads its
+;; four real i32 inputs out of the exported linear memory instead, at
+;; fixed byte offsets a host writes into before calling main() (same
+;; convention as cloud-itonami-isic-6492's affordability.kotoba /
+;; cloud-itonami-isic-6511's underwriting_decision.kotoba /
+;; cloud-itonami-isic-6630's fee_accrual.kotoba):
+;;   offset 0:  commitment-amount   (i32, smallest currency unit / cents --
+;;                                   ONE LP's total subscribed commitment)
+;;   offset 4:  total-committed     (i32, cents -- sum of ALL LPs'
+;;                                   commitment-amount across the fund;
+;;                                   MUST be > 0, host-validated -- see
+;;                                   wasm/README.md's "why no zero-guard")
+;;   offset 8:  call-amount         (i32, cents -- the fund-wide amount
+;;                                   this capital call is drawing down)
+;;   offset 12: called-amount       (i32, cents -- this LP's cumulative
+;;                                   amount already called prior to this
+;;                                   call)
+;; Returns 1 (this LP's recomputed allocation does NOT overcall it --
+;; new-called-amount <= commitment-amount, i.e. matches a well-formed
+;; upstream claim) or 0 (overcalled -- trustfund.governor's
+;; :allocation-mismatch HARD violation, see governor.cljc's
+;; allocation-mismatch-violations docstring: "including one caused by an
+;; overcall on the recomputed side").
+(defn main []
+  (capital-call-not-overcalled? (mem-i32-at 0 0) (mem-i32-at 0 4) (mem-i32-at 0 8) (mem-i32-at 0 12)))
