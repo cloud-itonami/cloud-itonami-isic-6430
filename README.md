@@ -135,6 +135,7 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 | `src/trustfund/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
 | `src/trustfund/sim.cljc` | demo driver -- includes literal upstream-fact fixtures matching `vcfund.registry/register-capital-call`/`register-distribution`/`vcfund.nav`'s exact output shapes |
 | `test/trustfund/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
+| `wasm/capital_call_allocation.kotoba` | PoC: a WASM-compiled (`kotoba-lang/kotoba` -> `kotoba-lang/kototama`'s `actor:host` ABI) single-LP scalar port of `trustfund.registry/capital-call-allocations`'s pro-rata allocation + overcall check, i.e. `trustfund.governor`'s `:allocation-mismatch` HARD check -- see `wasm/README.md` for the offset layout and single-LP extraction rationale |
 
 ## Business-process coverage (honest)
 
