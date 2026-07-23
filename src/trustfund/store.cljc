@@ -14,10 +14,9 @@
   notice, LP-distribution notice or NAV disclosure was actually issued,
   off which upstream investment-actor fact, approved by whom' is always
   a query over an immutable log."
-  (:require #?(:clj  [clojure.edn :as edn]
-               :cljs [cljs.reader :as edn])
-            [trustfund.registry :as registry]
-            [langchain.db :as d]))
+  (:require [trustfund.registry :as registry]
+            [langchain.db :as d]
+            [langchain-store.core :as ls]))
 
 (defprotocol Store
   (lp [s id])
@@ -204,9 +203,6 @@
    :distribution-sequence/jurisdiction {:db/unique :db.unique/identity}
    :nav-disclosure-sequence/jurisdiction {:db/unique :db.unique/identity}})
 
-(defn- enc [v] (pr-str v))
-(defn- dec* [s] (when s (edn/read-string s)))
-
 (defn- lp->tx [{:keys [id commitment-amount called-amount currency jurisdiction accredited?]}]
   (cond-> {:lp/id id}
     commitment-amount (assoc :lp/commitment-amount commitment-amount)
@@ -235,23 +231,23 @@
   (ledger [_]
     (->> (d/q '[:find ?s ?f :where [?e :ledger/seq ?s] [?e :ledger/fact ?f]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (subscription-history [_]
     (->> (d/q '[:find ?s ?r :where [?e :subscription-history/seq ?s] [?e :subscription-history/record ?r]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (notice-history [_]
     (->> (d/q '[:find ?s ?r :where [?e :notice-history/seq ?s] [?e :notice-history/record ?r]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (distribution-history [_]
     (->> (d/q '[:find ?s ?r :where [?e :distribution-history/seq ?s] [?e :distribution-history/record ?r]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (nav-disclosure-history [_]
     (->> (d/q '[:find ?s ?r :where [?e :nav-disclosure-history/seq ?s] [?e :nav-disclosure-history/record ?r]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (subscription-sequence [_ jurisdiction]
     (or (d/q '[:find ?n . :in $ ?j
               :where [?e :subscription-sequence/jurisdiction ?j] [?e :subscription-sequence/next ?n]]
@@ -286,7 +282,7 @@
                               :called-amount 0.0 :currency (:currency payload)
                               :jurisdiction (:jurisdiction payload) :accredited? (boolean (:accredited? payload))})
                       {:subscription-history/seq (count (subscription-history s))
-                       :subscription-history/record (enc (get result "record"))}])
+                       :subscription-history/record (ls/enc (get result "record"))}])
         result)
 
       :capital-call/notice-issued
@@ -295,7 +291,7 @@
         (d/transact! conn
                      (into [{:notice-sequence/jurisdiction (:jurisdiction payload) :notice-sequence/next next-n}
                             {:notice-history/seq (count (notice-history s))
-                             :notice-history/record (enc (get result "record"))}]
+                             :notice-history/record (ls/enc (get result "record"))}]
                            (map (fn [{:keys [lp-id new-called-amount]}]
                                   {:lp/id lp-id :lp/called-amount new-called-amount}))
                            allocations))
@@ -307,7 +303,7 @@
         (d/transact! conn
                      [{:distribution-sequence/jurisdiction (:jurisdiction payload) :distribution-sequence/next next-n}
                       {:distribution-history/seq (count (distribution-history s))
-                       :distribution-history/record (enc (get result "record"))}])
+                       :distribution-history/record (ls/enc (get result "record"))}])
         result)
 
       :nav/disclosed
@@ -316,12 +312,12 @@
         (d/transact! conn
                      [{:nav-disclosure-sequence/jurisdiction (:jurisdiction payload) :nav-disclosure-sequence/next next-n}
                       {:nav-disclosure-history/seq (count (nav-disclosure-history s))
-                       :nav-disclosure-history/record (enc (get result "record"))}])
+                       :nav-disclosure-history/record (ls/enc (get result "record"))}])
         result)
       nil)
     s)
   (append-ledger! [s fact]
-    (d/transact! conn [{:ledger/seq (count (ledger s)) :ledger/fact (enc fact)}])
+    (d/transact! conn [{:ledger/seq (count (ledger s)) :ledger/fact (ls/enc fact)}])
     fact)
   (with-lps [s lps]
     (when (seq lps) (d/transact! conn (mapv lp->tx (vals lps)))) s))
