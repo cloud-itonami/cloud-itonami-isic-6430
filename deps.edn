@@ -8,7 +8,14 @@
  :deps {io.github.com-junkawasaki/langgraph-clj
         {:local/root "../../kotoba-lang/langgraph"}
         io.github.kotoba-lang/langchain-store
-        {:local/root "../../kotoba-lang/langchain-store"}}
+        {:local/root "../../kotoba-lang/langchain-store"}
+        ;; design-system skin for build-time operator-console HTML
+        ;; (flagship checklist item 2 / ADR-2607189300). git/sha not
+        ;; local/root so standalone forks resolve without monorepo layout
+        ;; (jp-go-dds docs: local/root breaks when resolved from git cache).
+        io.github.kotoba-lang/jp-go-digital-design-system
+        {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system"
+         :git/sha "cc8f4849af5def7ea535fd6c0b8a623ccca645e9"}}
  :aliases
  {;; offline workspace dev -- pin transitive langchain-clj to local checkout
   :dev {:override-deps
@@ -16,6 +23,9 @@
          {:local/root "../../kotoba-lang/langchain"}}}
   ;; clojure -M:dev:run  -> drive the demo through one OperationActor
   :run {:main-opts ["-m" "trustfund.sim"]}
+  ;; clojure -M:dev:render-html [out-file] -> regenerate docs/samples/operator-console.html
+  ;; through the real actor (flagship checklist item 2, ADR-2607189300 Wave5 seq 6/7).
+  :render-html {:main-opts ["-m" "trustfund.render-html"]}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
