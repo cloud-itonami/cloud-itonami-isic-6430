@@ -17,10 +17,12 @@
         {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system"
          :git/sha "cc8f4849af5def7ea535fd6c0b8a623ccca645e9"}}
  :aliases
- {;; offline workspace dev -- pin transitive langchain-clj to local checkout
-  :dev {:override-deps
-        {io.github.com-junkawasaki/langchain-clj
-         {:local/root "../../kotoba-lang/langchain"}}}
+ {;; This alias held an :override-deps entry for the retired coordinate
+  ;; io.github.com-junkawasaki/langchain-clj. langgraph declares the same
+  ;; library as io.github.kotoba-lang/langchain, so the entry matched no
+  ;; node in the resolved tree and never reached the classpath -- verified
+  ;; with `clojure -Stree`/-Spath, unchanged before and after removal.
+  :dev {}
   ;; clojure -M:dev:run  -> drive the demo through one OperationActor
   :run {:main-opts ["-m" "trustfund.sim"]}
   ;; clojure -M:dev:render-html [out-file] -> regenerate docs/samples/operator-console.html
