@@ -85,7 +85,7 @@
        threshold, OR the op is `:capital-call/issue-notice`/
        `:distribution/record`/`:nav/disclose` (REAL legal acts -- see
        README `Actuation`) -> escalate."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [trustfund.kernels.gate :as gate]
             [trustfund.registry :as registry]
             [trustfund.store :as store]))

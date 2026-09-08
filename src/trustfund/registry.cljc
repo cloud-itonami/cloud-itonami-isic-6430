@@ -21,7 +21,7 @@
   distribution-notice record, so this namespace does not invent one --
   it validates required fields and assigns a fund-scoped sequence
   number."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defn- unsigned-certificate
   "Every certificate this actor produces is UNSIGNED -- signature is a
@@ -54,7 +54,7 @@
     (throw (ex-info "subscription: jurisdiction required" {})))
   (when (< sequence 0)
     (throw (ex-info "subscription: sequence must be >= 0" {})))
-  (let [subscription-number (str (str/upper-case jurisdiction) "-SUB-" (zero-pad sequence 8))
+  (let [subscription-number (str (str/upper jurisdiction) "-SUB-" (zero-pad sequence 8))
         record {"record_id" subscription-number
                 "kind" "subscription-draft"
                 "lp_id" lp-id
@@ -126,7 +126,7 @@
     (throw (ex-info "capital-call-notice: sequence must be >= 0" {})))
   (when-not (and notice-date (not= notice-date ""))
     (throw (ex-info "capital-call-notice: notice-date required" {})))
-  (let [notice-number (str (str/upper-case jurisdiction) "-NOTICE-" (zero-pad sequence 6))
+  (let [notice-number (str (str/upper jurisdiction) "-NOTICE-" (zero-pad sequence 6))
         record {"record_id" notice-number
                 "kind" "capital-call-notice-draft"
                 "upstream_call_number" upstream-call-number
@@ -193,7 +193,7 @@
     (throw (ex-info "distribution-notice: sequence must be >= 0" {})))
   (when-not (and effective-date (not= effective-date ""))
     (throw (ex-info "distribution-notice: effective-date required" {})))
-  (let [distribution-number (str (str/upper-case jurisdiction) "-DIST-" (zero-pad sequence 6))
+  (let [distribution-number (str (str/upper jurisdiction) "-DIST-" (zero-pad sequence 6))
         record {"record_id" distribution-number
                 "kind" "distribution-notice-draft"
                 "upstream_commitment_number" upstream-commitment-number
@@ -236,7 +236,7 @@
     (throw (ex-info "nav-disclosure: jurisdiction required" {})))
   (when (< sequence 0)
     (throw (ex-info "nav-disclosure: sequence must be >= 0" {})))
-  (let [disclosure-number (str (str/upper-case jurisdiction) "-NAV-" (zero-pad sequence 6))
+  (let [disclosure-number (str (str/upper jurisdiction) "-NAV-" (zero-pad sequence 6))
         record {"record_id" disclosure-number
                 "kind" "nav-disclosure-draft"
                 "nav" (double nav)
