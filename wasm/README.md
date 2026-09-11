@@ -8,11 +8,11 @@ allocation`, `overcall? = new-called-amount > commitment-amount`) — the
 independent recompute `trustfund.governor`'s `:allocation-mismatch` HARD
 check runs against an upstream `vcfund` capital-call draft's claimed
 per-LP allocation, including catching an overcall on the recomputed side
-(see `src/trustfund/governor.cljc`'s `allocation-mismatch-violations`
+(see `src/trustfund/governor.cljk`'s `allocation-mismatch-violations`
 docstring: "ANY mismatch (including one caused by an overcall on the
 recomputed side) is a HARD violation") — into the minimal `.kotoba`
 language subset, compiled to a real WASM module via `kotoba wasm emit`,
-and hosted via `kototama.tender` (`test/wasm/capital_call_allocation_test.clj`).
+and hosted via `kototama.tender` (`test/wasm/capital_call_allocation_test.cljk`).
 
 This follows the same `kotoba wasm emit` → `kototama.tender` pipeline
 `cloud-itonami-isic-6492`'s `wasm/affordability.kotoba`,
