@@ -127,13 +127,13 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 
 | File | Role |
 |---|---|
-| `src/trustfund/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + subscription/capital-call-notice/distribution/nav-disclosure history |
-| `src/trustfund/registry.cljc` | Subscription-agreement + capital-call-NOTICE + distribution-NOTICE + NAV-disclosure draft records; `capital-call-allocations`/`distribution-allocations` (INDEPENDENT re-implementations of `vcfund.registry`'s pro-rata math -- see "Relationship") |
-| `src/trustfund/advisor.cljc` | **TrustAdmin-LLM** -- `mock-advisor`; subscription-intake/capital-call-notice/distribution-record/nav-disclosure proposals (the latter three read an upstream `vcfund` fact) |
-| `src/trustfund/governor.cljc` | **TrustFundGovernor** -- 7 HARD checks (unaccredited-subscriber · subscription-missing · allocation-mismatch · no-subscriptions-for-distribution · distribution-already-recorded · nav-disclosure-subscription-missing · called-amount-mismatch) + 1 soft (confidence/actuation gate) |
-| `src/trustfund/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (capital-call notice, distribution record and NAV disclosure always human; subscription intake auto-eligible, no capital risk) |
-| `src/trustfund/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
-| `src/trustfund/sim.cljc` | demo driver -- includes literal upstream-fact fixtures matching `vcfund.registry/register-capital-call`/`register-distribution`/`vcfund.nav`'s exact output shapes |
+| `src/trustfund/store.cljk` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + subscription/capital-call-notice/distribution/nav-disclosure history |
+| `src/trustfund/registry.cljk` | Subscription-agreement + capital-call-NOTICE + distribution-NOTICE + NAV-disclosure draft records; `capital-call-allocations`/`distribution-allocations` (INDEPENDENT re-implementations of `vcfund.registry`'s pro-rata math -- see "Relationship") |
+| `src/trustfund/advisor.cljk` | **TrustAdmin-LLM** -- `mock-advisor`; subscription-intake/capital-call-notice/distribution-record/nav-disclosure proposals (the latter three read an upstream `vcfund` fact) |
+| `src/trustfund/governor.cljk` | **TrustFundGovernor** -- 7 HARD checks (unaccredited-subscriber · subscription-missing · allocation-mismatch · no-subscriptions-for-distribution · distribution-already-recorded · nav-disclosure-subscription-missing · called-amount-mismatch) + 1 soft (confidence/actuation gate) |
+| `src/trustfund/phase.cljk` | **Phase 0→3** -- read-only → assisted intake → supervised (capital-call notice, distribution record and NAV disclosure always human; subscription intake auto-eligible, no capital risk) |
+| `src/trustfund/operation.cljk` | **OperationActor** -- langgraph-clj StateGraph |
+| `src/trustfund/sim.cljk` | demo driver -- includes literal upstream-fact fixtures matching `vcfund.registry/register-capital-call`/`register-distribution`/`vcfund.nav`'s exact output shapes |
 | `test/trustfund/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
 | `wasm/capital_call_allocation.kotoba` | PoC: a WASM-compiled (`kotoba-lang/kotoba` -> `kotoba-lang/kototama`'s `actor:host` ABI) single-LP scalar port of `trustfund.registry/capital-call-allocations`'s pro-rata allocation + overcall check, i.e. `trustfund.governor`'s `:allocation-mismatch` HARD check -- see `wasm/README.md` for the offset layout and single-LP extraction rationale |
 
