@@ -137,7 +137,7 @@ steps in README's coverage table, not silently claimed as done.
 - (+) The cross-repo integration is PROVEN, not merely asserted: `trust-
   fund.governor`'s allocation-mismatch check is exercised by both a
   CLEAN upstream draft (escalates then commits) and a TAMPERED one
-  (HARD-held) in both the demo (`clojure -M:dev:run`) and the test suite
+  (HARD-held) in both the demo (`kbb -M:dev:run`) and the test suite
   (`governor_contract_test.clj`).
 - (+) No shared-code dependency between `cloud-itonami-isic-6499` and
   this repo -- each is independently forkable, independently deployable,
@@ -157,7 +157,7 @@ steps in README's coverage table, not silently claimed as done.
 ## Test/lint status
 
 `test/trustfund/*` -- 26 tests / 116 assertions, lint-clean
-(`clojure -M:lint`), demo (`clojure -M:dev:run`) runs end-to-end with no
+(`kbb -M:lint`), demo (`kbb -M:dev:run`) runs end-to-end with no
 exceptions: one clean subscription+notice lifecycle (escalate → approve
 → commit) plus three HARD-hold cases (unaccredited subscriber, notice
 referencing an unsubscribed LP, tampered/mismatched upstream allocation)
@@ -257,7 +257,7 @@ silently glossed over as if it worked exactly like the capital-call op.
   (see README's coverage table).
 
 `test/trustfund/*` after this addendum -- 36 tests / 174 assertions,
-lint-clean (`clojure -M:lint`), demo (`clojure -M:dev:run`) runs
+lint-clean (`kbb -M:lint`), demo (`kbb -M:dev:run`) runs
 end-to-end with no exceptions: two clean lifecycles (capital-call notice,
 distribution record; both escalate → approve → commit) plus five
 HARD-hold cases (unaccredited subscriber, notice referencing an
@@ -370,7 +370,7 @@ docstring, and README/business-model.md.
   out of scope by design, not by omission.
 
 `test/trustfund/*` after this addendum -- 44 tests / 221 assertions,
-lint-clean (`clojure -M:lint`), demo (`clojure -M:dev:run`) runs
+lint-clean (`kbb -M:lint`), demo (`kbb -M:dev:run`) runs
 end-to-end with no exceptions: three clean lifecycles (capital-call
 notice, distribution record, NAV disclosure; all escalate → approve →
 commit) plus seven HARD-hold cases (unaccredited subscriber, notice
