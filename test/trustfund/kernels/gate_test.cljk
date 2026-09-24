@@ -15,7 +15,7 @@
      amount-tolerance parity against the old |a − b| < 1e-6 predicate,
      exercised through the real `trustfund.governor/check` façade and
      representative values."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [trustfund.governor :as governor]
             [trustfund.kernels.gate :as gate]))
 

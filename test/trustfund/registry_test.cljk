@@ -1,5 +1,5 @@
 (ns trustfund.registry-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [trustfund.registry :as r]))
 
 (defn- close?
