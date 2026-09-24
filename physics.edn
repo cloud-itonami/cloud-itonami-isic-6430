@@ -1,0 +1,35 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README "Robotics premise": for trusts, funds and similar financial
+;; entities (ISIC 6430) a secure document-custody robot manages physical
+;; trust-deed / fund-prospectus custody, gated by the independent
+;; TrustFundGovernor. Physical work modelled here: the robot pulling a deed
+;; box out of a mobile (compact) shelving bay, and a custody cart carrying a
+;; stack of deed boxes from the strongroom to the reading room.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-6430"
+ :cases
+ [{:id :deed-box-from-compact-shelving
+   :kind :manipulator
+   :procedure "custody robot reaches into an opened compact-shelving aisle and lifts a deed box from a middle shelf onto its cart"
+   :params {:l1-m 0.65 :l2-m 0.55 :m1-kg 7.0 :m2-kg 5.0
+            :from [0.85 0.40] :to [0.30 0.10] :duration-s 2.5 :steps 500}
+   :sweep {:param :payload-kg :values [2.0 5.0 8.0 12.0 16.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 140.0 :basis "estimate: continuous shoulder torque of a ~10 kg-payload collaborative arm class"}
+   :boundary {:lo 0.5 :hi 60.0}}
+  {:id :deed-cart-to-reading-room
+   :kind :transport
+   :procedure "custody cart carries a 40 kg stack of deed boxes 50 m from the strongroom to the supervised reading room; braking swept up to a hard stop"
+   :params {:mass-kg 60.0 :distance-m 50.0 :v-max-mps 1.0 :a-max-mps2 0.4
+            :payload-kg 40.0 :drive-force-n 200.0 :crr 0.015
+            :cog-height-m 0.30 :support-half-length-m 0.30 :payload-cog-height-m 0.95
+            :max-time-s 600.0}
+   :sweep {:param :brake-decel-mps2 :values [0.5 1.0 1.5 2.0 2.5 3.0]}
+   :quantity :min-tipover-margin
+   :limit {:min 0.6 :basis "estimate: keep 60 % of the static margin so a stacked load of original deeds is never dropped"}
+   :boundary {:lo 0.3 :hi 4.0}}]}
