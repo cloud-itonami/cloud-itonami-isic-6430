@@ -16,7 +16,7 @@
   wasm/capital_call_allocation.kotoba's ns-adjacent header comment for
   the offset layout."
   (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [kototama.contract :as contract]
             [kototama.tender :as tender]))
 
